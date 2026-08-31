@@ -6,7 +6,8 @@ services:
       POSTGRES_USER: phanda
       POSTGRES_PASSWORD: phanda
     ports:
-      - "5432:5432"
+      # Keep the container on 5432; 5433 avoids the local Windows PostgreSQL service.
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -17,4 +18,3 @@ services:
 
 volumes:
   postgres_data:
-

@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+psycopg://phanda:phanda@localhost:5432/phanda"
+    database_url: str = "postgresql+psycopg://phanda:phanda@localhost:5433/phanda"
     redis_url: str = "redis://localhost:6379/0"
 
     jwt_secret: str = "change-me"

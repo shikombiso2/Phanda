@@ -224,6 +224,11 @@ class Listing(Base):
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     listing_type: Mapped[ListingType] = mapped_column(Enum(ListingType), default=ListingType.job)
+    category: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    """Source-provided industry/category label (e.g. Adzuna's category.label)
+    -- used as the recommendation engine's industry-compatibility signal.
+    Left null for sources that don't provide one rather than guessed from
+    free text."""
     salary_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     salary_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str] = mapped_column(Text)

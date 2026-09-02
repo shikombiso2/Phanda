@@ -14,6 +14,7 @@ class ListingOut(BaseModel):
     company: str | None
     location: str | None
     listing_type: ListingType
+    category: str | None
     salary_min: int | None
     salary_max: int | None
     description: str
@@ -27,12 +28,19 @@ class ListingOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class MatchBreakdown(BaseModel):
-    score: int
-    matched_skills: list[str]
-    missing_skills: list[str]
+class ListingSummaryOut(BaseModel):
+    """Trimmed shape for list views: no `description`, which can run to
+    several thousand characters and has no place in a scrollable list."""
 
+    id: uuid.UUID
+    title: str
+    company: str | None
+    location: str | None
+    listing_type: ListingType
+    salary_min: int | None
+    salary_max: int | None
+    required_skills: list[str]
+    posted_at: datetime | None
 
-class ListingMatchOut(ListingOut):
-    match: MatchBreakdown
+    model_config = {"from_attributes": True}
 

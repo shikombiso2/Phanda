@@ -11,7 +11,8 @@ FastAPI backend for Phanda, following `phanda-codex-prompt.md` and `phanda-backe
 - Production boots refuse to start with an unchanged `JWT_SECRET`
 - Immutable CV versions with asynchronous PDF/DOCX/TXT extraction
 - Normalized listings schema with Adzuna ingestion first
-- Explainable skill-overlap matching
+- Cold-start-capable, explainable job matching: a hand-calibrated probabilistic combination of skill/experience/job-type/location/industry/salary compatibility factors (see `docs/RECOMMENDATIONS.md`)
+- Limit/offset pagination on every list endpoint (listings, matches, applications, saved opportunities)
 - Gemini-backed, provider-neutral structured CV tailoring with deterministic validation and PDF rendering
 - Separate tailoring and application flows; email applications use real PDF attachments
 - Skill-gap flagging and gated roadmap resources

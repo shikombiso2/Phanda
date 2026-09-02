@@ -18,6 +18,7 @@ def upsert_listings(db: Session, normalized: list[NormalizedListing]) -> int:
         listing.company = row.company
         listing.location = row.location
         listing.listing_type = row.listing_type
+        listing.category = row.category
         listing.salary_min = row.salary_min
         listing.salary_max = row.salary_max
         listing.description = row.description

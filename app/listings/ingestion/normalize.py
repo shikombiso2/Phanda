@@ -13,6 +13,7 @@ class NormalizedListing:
     company: str | None
     location: str | None
     listing_type: ListingType
+    category: str | None
     salary_min: int | None
     salary_max: int | None
     description: str
@@ -65,6 +66,7 @@ def normalize_adzuna(raw: dict) -> NormalizedListing:
     apply_method, apply_target = classify_apply_target(raw.get("redirect_url"))
     company = (raw.get("company") or {}).get("display_name")
     location = (raw.get("location") or {}).get("display_name")
+    category = (raw.get("category") or {}).get("label")
     posted_at = None
     if raw.get("created"):
         posted_at = datetime.fromisoformat(raw["created"].replace("Z", "+00:00"))
@@ -76,6 +78,7 @@ def normalize_adzuna(raw: dict) -> NormalizedListing:
         company=company,
         location=location,
         listing_type=classify_listing_type(title, description),
+        category=category,
         salary_min=_safe_int(raw.get("salary_min")),
         salary_max=_safe_int(raw.get("salary_max")),
         description=description,

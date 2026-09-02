@@ -8,8 +8,8 @@ from app.core.db import get_db
 from app.core.errors import raise_access_blocked
 from app.core.models import Listing, Profile, User
 from app.core.security import get_current_user
-from app.matching.service import score_listing
 from app.monetization.gate import check_access
+from app.recommendations.features import skill_compatibility
 from app.skill_gap.resources import SKILL_RESOURCES
 from app.skill_gap.schemas import RoadmapOut, SkillGapOut
 
@@ -26,7 +26,14 @@ def skill_gap(
     if not profile:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Profile not found")
     listings = [db.get(Listing, listing_id)] if listing_id else db.scalars(select(Listing).where(Listing.is_active.is_(True))).all()
-    missing = sorted({skill for listing in listings if listing for skill in score_listing(profile, listing)["missing_skills"]})
+    missing = sorted(
+        {
+            skill
+            for listing in listings
+            if listing
+            for skill in skill_compatibility(profile.skills or [], listing.required_skills or [])[2]
+        }
+    )
     return SkillGapOut(missing_skills=missing)
 
 

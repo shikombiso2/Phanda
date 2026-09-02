@@ -1,21 +1,38 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
-class OtpRequestIn(BaseModel):
-    phone_number: str = Field(min_length=8, max_length=32)
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+    confirm_password: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def passwords_match(self) -> "RegisterIn":
+        if self.password != self.confirm_password:
+            raise ValueError("password and confirm_password must match")
+        return self
 
 
-class OtpRequestOut(BaseModel):
-    message: str
-    dev_otp: str | None = None
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
 
 
-class OtpVerifyIn(BaseModel):
-    phone_number: str = Field(min_length=8, max_length=32)
-    otp_code: str = Field(min_length=4, max_length=12)
+class GoogleAuthIn(BaseModel):
+    id_token: str = Field(min_length=1)
 
 
-class TokenOut(BaseModel):
+class RefreshIn(BaseModel):
+    refresh_token: str = Field(min_length=1)
+
+
+class LogoutIn(BaseModel):
+    refresh_token: str = Field(min_length=1)
+
+
+class AuthTokensOut(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
-
+    expires_in: int
+    is_new_user: bool

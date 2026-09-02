@@ -1,61 +1,63 @@
-from datetime import datetime, timedelta, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import desc, select
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.auth.schemas import OtpRequestIn, OtpRequestOut, OtpVerifyIn, TokenOut
-from app.auth.sms import send_otp_sms
-from app.core.config import get_settings
+from app.auth import service
+from app.auth.google import GoogleAuthNotConfigured, verify_google_id_token
+from app.auth.schemas import AuthTokensOut, GoogleAuthIn, LoginIn, LogoutIn, RefreshIn, RegisterIn
 from app.core.db import get_db
-from app.core.models import OtpChallenge, Profile, User
-from app.core.security import create_access_token, generate_otp, get_current_user
+from app.core.errors import api_error
+from app.core.models import User
+from app.core.rate_limit import check_rate_limit
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/otp/request", response_model=OtpRequestOut)
-async def request_otp(payload: OtpRequestIn, db: Session = Depends(get_db)) -> OtpRequestOut:
-    settings = get_settings()
-    otp = generate_otp()
-    challenge = OtpChallenge(
-        phone_number=payload.phone_number,
-        otp_code=otp,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.otp_ttl_minutes),
-    )
-    db.add(challenge)
-    db.commit()
-
-    await send_otp_sms(payload.phone_number, otp)
-    return OtpRequestOut(message="OTP sent", dev_otp=otp if settings.otp_dev_mode else None)
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
-@router.post("/otp/verify", response_model=TokenOut)
-def verify_otp(payload: OtpVerifyIn, db: Session = Depends(get_db)) -> TokenOut:
-    challenge = db.scalar(
-        select(OtpChallenge)
-        .where(
-            OtpChallenge.phone_number == payload.phone_number,
-            OtpChallenge.consumed_at.is_(None),
-        )
-        .order_by(desc(OtpChallenge.created_at))
-    )
-    now = datetime.now(timezone.utc)
-    if not challenge or challenge.otp_code != payload.otp_code or challenge.expires_at < now:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired OTP")
-
-    user = db.scalar(select(User).where(User.phone_number == payload.phone_number))
-    if not user:
-        user = User(phone_number=payload.phone_number)
-        db.add(user)
-        db.flush()
-        db.add(Profile(user_id=user.id))
-
-    challenge.consumed_at = now
-    db.commit()
-    return TokenOut(access_token=create_access_token(user.id))
+@router.post("/register", response_model=AuthTokensOut, status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db)) -> AuthTokensOut:
+    check_rate_limit(bucket="register:ip", key=_client_ip(request), limit=10, window_seconds=3600)
+    user = service.register_with_password(db, email=payload.email, password=payload.password)
+    return service.issue_tokens(db, user, is_new_user=True)
 
 
-@router.post("/refresh", response_model=TokenOut)
-def refresh_token(user: User = Depends(get_current_user)) -> TokenOut:
-    return TokenOut(access_token=create_access_token(user.id))
+@router.post("/login", response_model=AuthTokensOut)
+def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> AuthTokensOut:
+    check_rate_limit(bucket="login:ip", key=_client_ip(request), limit=30, window_seconds=3600)
+    check_rate_limit(bucket="login:email", key=payload.email.lower(), limit=8, window_seconds=900)
+    user = service.authenticate_with_password(db, email=payload.email, password=payload.password)
+    return service.issue_tokens(db, user, is_new_user=False)
+
+
+@router.post("/google", response_model=AuthTokensOut)
+def google_auth(payload: GoogleAuthIn, request: Request, db: Session = Depends(get_db)) -> AuthTokensOut:
+    check_rate_limit(bucket="google:ip", key=_client_ip(request), limit=30, window_seconds=3600)
+    try:
+        identity = verify_google_id_token(payload.id_token)
+    except GoogleAuthNotConfigured as exc:
+        raise api_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE, code="google_auth_not_configured", message="Google sign-in is not available right now."
+        ) from exc
+    user, is_new_user = service.authenticate_or_create_with_google(db, identity)
+    return service.issue_tokens(db, user, is_new_user=is_new_user)
+
+
+@router.post("/token/refresh", response_model=AuthTokensOut)
+def refresh(payload: RefreshIn, request: Request, db: Session = Depends(get_db)) -> AuthTokensOut:
+    check_rate_limit(bucket="refresh:ip", key=_client_ip(request), limit=60, window_seconds=3600)
+    return service.rotate_refresh_token(db, payload.refresh_token)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(payload: LogoutIn, db: Session = Depends(get_db)) -> Response:
+    service.revoke_refresh_token(db, payload.refresh_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+def logout_all(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Response:
+    service.revoke_all_refresh_tokens(db, user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

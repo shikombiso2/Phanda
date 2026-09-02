@@ -1,27 +1,26 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.applications.email import send_application_email
-from app.applications.schemas import ApplicationOut, ApplyOut
+from app.applications.schemas import ApplicationCreate, ApplicationOut, ApplyOut
 from app.core.db import get_db
-from app.core.errors import raise_access_blocked
-from app.core.models import Application, AppliedVia, ApplyMethod, Listing, Profile, User
+from app.core.models import Application, ApplicationStatus, ApplicationSubmissionStatus, AppliedVia, ApplyMethod, CvVersion, CvVersionStatus, Listing, Profile, TailoredDocument, TailoredDocumentStatus, User
+from app.core.observability import emit_event
 from app.core.security import get_current_user
-from app.cv_tailoring.service import generate_tailored_documents
-from app.monetization.gate import check_access
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
 
-@router.post("/{listing_id}/apply", response_model=ApplyOut)
-async def apply_to_listing(
+@router.post("/{listing_id}/apply", response_model=ApplyOut, status_code=status.HTTP_202_ACCEPTED)
+def apply_to_listing(
     listing_id: uuid.UUID,
+    payload: ApplicationCreate | None = None,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=255),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> dict:
+) -> Application:
     listing = db.get(Listing, listing_id)
     profile = db.get(Profile, user.id)
     if not listing or not listing.is_active:
@@ -29,17 +28,30 @@ async def apply_to_listing(
     if not profile:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Profile not found")
 
-    access = check_access(db, user.id, "cv_tailor")
-    if not access.allowed:
-        raise_access_blocked(access)
-
-    cv_url, cover_url = generate_tailored_documents(profile, listing)
+    if idempotency_key:
+        duplicate = db.scalar(select(Application).where(Application.user_id == user.id, Application.idempotency_key == idempotency_key))
+        if duplicate:
+            return duplicate
+    tailored_document_id = payload.tailored_document_id if payload else None
+    if tailored_document_id:
+        document = db.scalar(select(TailoredDocument).where(TailoredDocument.id == tailored_document_id, TailoredDocument.user_id == user.id))
+        if not document or document.listing_id != listing.id or document.status != TailoredDocumentStatus.ready:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A ready tailored document for this listing is required")
+    else:
+        master = db.get(CvVersion, profile.active_cv_version_id) if profile.active_cv_version_id else None
+        if not master or master.user_id != user.id or master.status != CvVersionStatus.ready:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload a ready master CV or select a ready tailored CV")
+    existing = db.scalar(select(Application).where(Application.user_id == user.id, Application.listing_id == listing.id))
+    if existing:
+        return existing
     applied_via = AppliedVia.phanda_email if listing.apply_method == ApplyMethod.email else AppliedVia.external_link
     application = Application(
         user_id=user.id,
         listing_id=listing.id,
-        tailored_cv_url=cv_url,
-        tailored_cover_letter_url=cover_url,
+        tailored_document_id=tailored_document_id,
+        idempotency_key=idempotency_key,
+        status=ApplicationStatus.prepared if listing.apply_method == ApplyMethod.email else ApplicationStatus.external_started,
+        submission_status=ApplicationSubmissionStatus.email_queued if listing.apply_method == ApplyMethod.email else ApplicationSubmissionStatus.external_started,
         applied_via=applied_via,
     )
     db.add(application)
@@ -47,18 +59,10 @@ async def apply_to_listing(
     db.refresh(application)
 
     if listing.apply_method == ApplyMethod.email:
-        await send_application_email(
-            to_email=listing.apply_target,
-            subject=f"Application: {listing.title}",
-            body="Please find my tailored application documents linked below.",
-            cv_url=cv_url,
-            cover_letter_url=cover_url,
-        )
-
-    result = ApplyOut.model_validate(application).model_dump()
-    result["next_step_url"] = listing.apply_target if listing.apply_method == ApplyMethod.ats_link else None
-    result["access_reason"] = access.reason
-    return result
+        from app.applications.tasks import send_application_email_task
+        emit_event("email_queued", application_id=application.id, source="application_created")
+        send_application_email_task.delay(str(application.id))
+    return application
 
 
 @router.get("", response_model=list[ApplicationOut])

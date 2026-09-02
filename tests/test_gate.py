@@ -4,7 +4,7 @@ from datetime import date
 from unittest.mock import patch
 
 from app.core.models import Entitlement, FeatureUsage, Wallet
-from app.monetization.gate import check_access, monthly_period_start
+from app.monetization.gate import TailoringAllowance, check_access, monthly_period_start
 
 
 class FakeScalarResult:
@@ -38,44 +38,45 @@ class GateTests(unittest.TestCase):
     def test_monthly_period_start(self):
         self.assertEqual(monthly_period_start(date(2026, 8, 30)), date(2026, 8, 1))
 
-    def test_premium_allows_without_incrementing_usage(self):
+    @patch("app.monetization.gate.get_tailoring_allowance")
+    def test_tailoring_gate_is_read_only_for_premium(self, mocked_allowance):
         user_id = uuid.uuid4()
-        db = FakeDb([Entitlement(user_id=user_id, is_active=True, revenuecat_customer_id="rc")])
+        db = FakeDb([])
+        mocked_allowance.return_value = TailoringAllowance(0, 0, True, 100, False, False)
 
         decision = check_access(db, user_id, "cv_tailor")
 
         self.assertTrue(decision.allowed)
-        self.assertEqual(decision.reason, "premium")
+        self.assertEqual(decision.reason, "tailoring_reservation_required")
         self.assertEqual(db.commits, 0)
 
-    def test_free_quota_allows_and_increments(self):
+    @patch("app.monetization.gate.get_tailoring_allowance")
+    def test_tailoring_gate_does_not_increment_free_usage(self, mocked_allowance):
         user_id = uuid.uuid4()
         usage = FeatureUsage(user_id=user_id, feature_key="cv_tailor", period_start=date(2026, 8, 1), free_uses_count=1)
-        db = FakeDb([None, usage])
+        db = FakeDb([])
+        mocked_allowance.return_value = TailoringAllowance(2, 0, False, None, False, False)
 
         decision = check_access(db, user_id, "cv_tailor")
 
         self.assertTrue(decision.allowed)
-        self.assertEqual(decision.reason, "free_quota")
-        self.assertEqual(usage.free_uses_count, 2)
-        self.assertEqual(db.commits, 1)
+        self.assertEqual(decision.reason, "tailoring_reservation_required")
+        self.assertEqual(usage.free_uses_count, 1)
+        self.assertEqual(db.commits, 0)
 
-    @patch("app.monetization.gate.date")
-    def test_boost_token_spends_once_per_day(self, mocked_date):
-        mocked_date.today.return_value = date(2026, 8, 30)
+    @patch("app.monetization.gate.get_tailoring_allowance")
+    def test_tailoring_gate_does_not_spend_boost_tokens(self, mocked_allowance):
         user_id = uuid.uuid4()
         usage = FeatureUsage(user_id=user_id, feature_key="cv_tailor", period_start=date(2026, 8, 1), free_uses_count=3)
         wallet = Wallet(user_id=user_id, balance=2)
-        db = FakeDb([None, usage, wallet])
+        db = FakeDb([])
+        mocked_allowance.return_value = TailoringAllowance(0, 0, False, None, True, True)
 
         decision = check_access(db, user_id, "cv_tailor")
 
-        self.assertTrue(decision.allowed)
-        self.assertEqual(decision.reason, "boost_token")
-        self.assertEqual(wallet.balance, 1)
-        self.assertEqual(usage.ad_reward_date, date(2026, 8, 30))
+        self.assertFalse(decision.allowed)
+        self.assertEqual(wallet.balance, 2)
 
 
 if __name__ == "__main__":
     unittest.main()
-

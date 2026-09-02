@@ -4,16 +4,18 @@ FastAPI backend for Phanda, following `phanda-codex-prompt.md` and `phanda-backe
 
 ## What is included
 
-- Phone + OTP auth with JWT issuance
-- JWT refresh endpoint
-- Optional generic SMS delivery hook for production OTP sending
-- Profile CRUD and CV upload path storage
+- Passwordless-free email/password auth (Argon2id hashing) plus server-verified Google Sign-In, linked by email so one person never gets two accounts
+- Short-lived access JWTs with revocable, rotating refresh tokens; reuse of a rotated token revokes the whole session family
+- Redis-backed rate limiting on register/login/Google/refresh
+- Structured JSON logging to stdout; `/health` (liveness) and `/ready` (Postgres/Redis/storage readiness)
+- Production boots refuse to start with an unchanged `JWT_SECRET`
+- Immutable CV versions with asynchronous PDF/DOCX/TXT extraction
 - Normalized listings schema with Adzuna ingestion first
 - Explainable skill-overlap matching
-- CV and cover-letter tailoring through Anthropic, with local fallback when no API key is set
-- Application tracking for email and ATS-link listings
+- Gemini-backed, provider-neutral structured CV tailoring with deterministic validation and PDF rendering
+- Separate tailoring and application flows; email applications use real PDF attachments
 - Skill-gap flagging and gated roadmap resources
-- Unified `check_access(user_id, feature_key)` gate for CV tailoring and skill-gap roadmap
+- Reservation-based tailoring allowance so failed generation does not consume a request
 - Single `/webhooks/revenuecat` webhook for entitlements and wallet updates
 - Celery beat task for scheduled Adzuna ingestion
 
@@ -40,26 +42,32 @@ docker compose up -d
 Copy-Item .env.example .env
 ```
 
-5. Run the API:
+5. Apply the database schema (this project uses Alembic; do not rely on API startup to create tables):
+
+```powershell
+alembic upgrade head
+```
+
+6. Run the API:
 
 ```powershell
 uvicorn main:app --reload
 ```
 
-The API will create MVP tables on startup and expose OpenAPI docs at `http://127.0.0.1:8000/docs`.
+The API exposes OpenAPI docs at `http://127.0.0.1:8000/docs`.
 
 Seed a local dev user and two sample listings:
 
 ```powershell
-python scripts/seed_dev.py
+python -m scripts.seed_dev
 ```
 
 ## Useful commands
 
-Run Adzuna ingestion manually:
+Run Adzuna ingestion manually (requires `INGESTION_TRIGGER_SECRET` to be set):
 
 ```powershell
-curl -X POST http://127.0.0.1:8000/ingestion/adzuna/run
+curl -X POST http://127.0.0.1:8000/ingestion/adzuna/run -H "X-Ingestion-Secret: $env:INGESTION_TRIGGER_SECRET"
 ```
 
 Run the Celery worker:
@@ -76,8 +84,8 @@ celery -A app.celery_app.celery_app beat --loglevel=info
 
 ## Notes
 
-- `OTP_DEV_MODE=true` returns the OTP in the response for local testing.
-- Set `OTP_DEV_MODE=false`, `SMS_API_URL`, and `SMS_API_KEY` to send OTPs through a configured SMS gateway.
-- Files are uploaded to S3 when `S3_BUCKET` is configured; otherwise the app returns `local://...` placeholders.
+- Authentication is email/password and Google Sign-In only — there is no phone number or SMS OTP anywhere in this codebase. Set `GOOGLE_OAUTH_CLIENT_IDS` (comma-separated) to enable `POST /auth/google`; it returns 503 while unset.
+- Set `ENVIRONMENT=production` to enable the startup safety check that refuses to boot with the default `JWT_SECRET`.
+- Files are uploaded to S3 when `S3_BUCKET` is configured; otherwise development downloads are proxied by the API. Storage URIs are never returned.
 - RevenueCat webhook verification expects `X-RevenueCat-Webhook-Signature` with HMAC signing enabled and `REVENUECAT_WEBHOOK_SECRET` set.
 - No LinkedIn scraping, custom AdMob SSV, PayFast/Yoco, ML ranking, or automated ATS form submission is implemented.

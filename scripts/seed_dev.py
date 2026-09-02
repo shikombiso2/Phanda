@@ -1,17 +1,35 @@
-from app.core.db import Base, SessionLocal, engine
-from app.core.models import ApplyMethod, JobType, Listing, ListingType, Profile, User
+"""Seed a local dev account and two sample listings.
+
+Requires the schema to already exist — run ``alembic upgrade head`` first.
+This script used to call ``Base.metadata.create_all()`` itself, which meant
+the ORM models (not a tracked migration) were the real source of truth for
+the schema on anyone's first run. That is exactly the gap that made
+``alembic upgrade head`` fail on a fresh database, so it is deliberately not
+done here any more.
+"""
+
+from sqlalchemy import inspect
+
+from app.core.db import SessionLocal, engine
+from app.core.models import ApplyMethod, JobType, Listing, ListingType, Profile, User, utcnow
+from app.core.security import hash_password
 from app.profiles.service import compute_profile_completeness
 
-
-DEV_PHONE = "+27000000000"
+DEV_EMAIL = "dev@phanda.local"
+DEV_PASSWORD = "PhandaDev123!"
 
 
 def main() -> None:
-    Base.metadata.create_all(bind=engine)
+    if not inspect(engine).has_table("users"):
+        raise SystemExit(
+            "The 'users' table does not exist yet. Run `alembic upgrade head` before seeding — "
+            "this script no longer creates the schema itself."
+        )
+
     with SessionLocal() as db:
-        user = db.query(User).filter(User.phone_number == DEV_PHONE).one_or_none()
+        user = db.query(User).filter(User.email == DEV_EMAIL).one_or_none()
         if not user:
-            user = User(phone_number=DEV_PHONE, email="dev@phanda.local")
+            user = User(email=DEV_EMAIL, password_hash=hash_password(DEV_PASSWORD), email_verified_at=utcnow())
             db.add(user)
             db.flush()
 
@@ -52,7 +70,9 @@ def main() -> None:
         )
 
         db.commit()
-        print(f"Seeded dev user {user.id} with phone {DEV_PHONE}")
+        print(f"Seeded dev user {user.id}")
+        print(f"  email:    {DEV_EMAIL}")
+        print(f"  password: {DEV_PASSWORD}")
 
 
 def _upsert_listing(
@@ -85,4 +105,3 @@ def _upsert_listing(
 
 if __name__ == "__main__":
     main()
-

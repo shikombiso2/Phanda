@@ -36,9 +36,9 @@ async def revenuecat_webhook(
     payload = await request.json()
     event = payload.get("event", {})
     event_type = event.get("type")
-    app_user_id = event.get("app_user_id") or event.get("aliases", [None])[0]
-    user_id = _parse_user_id(app_user_id)
+    user_id = _resolve_user_id(event)
     if not user_id:
+        emit_event("webhook_ignored", provider="revenuecat", reason="no_resolvable_user_id")
         return {"status": "ignored"}
 
     if event_type in PURCHASE_ACTIVE_EVENTS | PURCHASE_INACTIVE_EVENTS:
@@ -51,7 +51,15 @@ async def revenuecat_webhook(
     elif (event.get("currency") or event.get("currency_key")) == TAILORING_CURRENCY:
         _grant_verified_tailoring_reward(db, user_id, event)
     elif event_type in VIRTUAL_CURRENCY_EVENTS or event.get("currency") or event.get("currency_key"):
-        _upsert_wallet(db, user_id=user_id, balance=_extract_balance(event))
+        balance = _extract_balance(event)
+        if balance is None:
+            # No recognizable balance field: previously this silently zeroed
+            # the wallet via a `balance or 0` fallback. Ignoring an event we
+            # cannot interpret is safer than guessing a value that overwrites
+            # real paid-for credits.
+            emit_event("webhook_ignored", provider="revenuecat", reason="unresolvable_balance", user_id=user_id)
+        else:
+            _upsert_wallet(db, user_id=user_id, balance=balance)
 
     db.commit()
     return {"status": "ok"}
@@ -69,6 +77,14 @@ def _verify_signature(payload: bytes, header: str | None, secret: str, tolerance
         return hmac.compare_digest(computed, expected) and abs(time.time() - int(timestamp)) <= tolerance_seconds
     except Exception:
         return False
+
+
+def _resolve_user_id(event: dict) -> uuid.UUID | None:
+    # `event.get("aliases", [None])[0]` looked safe but raised IndexError
+    # whenever RevenueCat sent `"aliases": []` (a present-but-empty list) --
+    # the default only ever covers a *missing* key, not an empty one.
+    aliases = event.get("aliases") or [None]
+    return _parse_user_id(event.get("app_user_id") or aliases[0])
 
 
 def _parse_user_id(value: str | None) -> uuid.UUID | None:
@@ -118,10 +134,16 @@ def _grant_verified_tailoring_reward(db: Session, user_id: uuid.UUID, event: dic
     emit_event("reward_granted", provider="revenuecat", credits=1)
 
 
-def _extract_balance(event: dict) -> int:
+def _extract_balance(event: dict) -> int | None:
     for key in ("balance", "new_balance", "virtual_currency_balance"):
         if event.get(key) is not None:
-            return int(event[key])
+            try:
+                return int(event[key])
+            except (TypeError, ValueError):
+                return None
     if event.get("amount") is not None:
-        return max(0, int(event["amount"]))
-    return 0
+        try:
+            return max(0, int(event["amount"]))
+        except (TypeError, ValueError):
+            return None
+    return None

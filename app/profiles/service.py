@@ -12,8 +12,7 @@ def compute_profile_completeness(profile: Profile) -> int:
         profile.experience_level.value if profile.experience_level else None,
         profile.desired_salary_min,
         profile.desired_salary_max,
-        profile.cv_file_url,
+        profile.active_cv_version_id or profile.cv_file_url,
     ]
     completed = sum(1 for value in fields if value is not None and value != [] and value != "")
     return round(completed / len(fields) * 100)
-

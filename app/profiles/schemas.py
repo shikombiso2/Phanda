@@ -23,13 +23,13 @@ class ProfileUpdate(ProfileBase):
 
 class ProfileOut(ProfileBase):
     user_id: uuid.UUID
-    cv_file_url: str | None
+    active_cv_version_id: uuid.UUID | None
     profile_completeness: int
 
     model_config = {"from_attributes": True}
 
 
 class CvUploadOut(BaseModel):
-    cv_file_url: str
+    cv_version_id: uuid.UUID
+    status: str
     profile_completeness: int
-

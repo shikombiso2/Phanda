@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.models import Entitlement, Wallet
-from app.monetization.gate import BOOST_CURRENCY, PREMIUM_ENTITLEMENT
+from app.core.models import Entitlement, RewardEvent, Wallet
+from app.core.observability import emit_event
+from app.monetization.gate import BOOST_CURRENCY, PREMIUM_ENTITLEMENT, TAILORING_CURRENCY
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -27,7 +28,9 @@ async def revenuecat_webhook(
 ) -> dict[str, str]:
     raw_body = await request.body()
     settings = get_settings()
-    if settings.revenuecat_webhook_secret and not _verify_signature(raw_body, signature, settings.revenuecat_webhook_secret):
+    if not settings.revenuecat_webhook_secret:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="RevenueCat webhook verification is not configured")
+    if not _verify_signature(raw_body, signature, settings.revenuecat_webhook_secret):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid RevenueCat signature")
 
     payload = await request.json()
@@ -45,6 +48,8 @@ async def revenuecat_webhook(
             revenuecat_customer_id=event.get("app_user_id") or str(user_id),
             is_active=event_type in PURCHASE_ACTIVE_EVENTS,
         )
+    elif (event.get("currency") or event.get("currency_key")) == TAILORING_CURRENCY:
+        _grant_verified_tailoring_reward(db, user_id, event)
     elif event_type in VIRTUAL_CURRENCY_EVENTS or event.get("currency") or event.get("currency_key"):
         _upsert_wallet(db, user_id=user_id, balance=_extract_balance(event))
 
@@ -96,6 +101,23 @@ def _upsert_wallet(db: Session, user_id: uuid.UUID, balance: int) -> None:
     wallet.balance = balance
 
 
+def _grant_verified_tailoring_reward(db: Session, user_id: uuid.UUID, event: dict) -> None:
+    external_event_id = event.get("id") or event.get("transaction_id") or event.get("event_id")
+    if not external_event_id:
+        emit_event("reward_duplicate_ignored", provider="revenuecat", reason="missing_external_event_id")
+        return
+    if db.scalar(select(RewardEvent).where(RewardEvent.provider == "revenuecat", RewardEvent.external_event_id == str(external_event_id))):
+        emit_event("reward_duplicate_ignored", provider="revenuecat")
+        return
+    db.add(RewardEvent(provider="revenuecat", external_event_id=str(external_event_id), user_id=user_id, credits_granted=1))
+    wallet = db.scalar(select(Wallet).where(Wallet.user_id == user_id, Wallet.currency_key == TAILORING_CURRENCY))
+    if not wallet:
+        wallet = Wallet(user_id=user_id, currency_key=TAILORING_CURRENCY)
+        db.add(wallet)
+    wallet.balance += 1
+    emit_event("reward_granted", provider="revenuecat", credits=1)
+
+
 def _extract_balance(event: dict) -> int:
     for key in ("balance", "new_balance", "virtual_currency_balance"):
         if event.get(key) is not None:
@@ -103,4 +125,3 @@ def _extract_balance(event: dict) -> int:
     if event.get("amount") is not None:
         return max(0, int(event["amount"]))
     return 0
-

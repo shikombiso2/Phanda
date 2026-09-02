@@ -83,6 +83,12 @@ Run the Celery beat scheduler:
 celery -A app.celery_app.celery_app beat --loglevel=info
 ```
 
+Re-tag already-ingested listings after a skill vocabulary change (dry run by default):
+
+```powershell
+python -m scripts.retag_listing_skills --apply
+```
+
 ## Notes
 
 - Authentication is email/password and Google Sign-In only — there is no phone number or SMS OTP anywhere in this codebase. Set `GOOGLE_OAUTH_CLIENT_IDS` (comma-separated) to enable `POST /auth/google`; it returns 503 while unset.

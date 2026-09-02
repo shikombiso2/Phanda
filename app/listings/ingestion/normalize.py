@@ -1,11 +1,8 @@
-import re
 from dataclasses import dataclass
 from datetime import datetime
 
 from app.core.models import ApplyMethod, ListingType
 from app.listings.ingestion.skills import extract_required_skills
-
-EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
 @dataclass(frozen=True)
@@ -38,10 +35,22 @@ def classify_listing_type(title: str, description: str) -> ListingType:
     return ListingType.job
 
 
-def classify_apply_target(url: str | None, description: str) -> tuple[ApplyMethod, str]:
-    match = EMAIL_RE.search(description or "")
-    if match:
-        return ApplyMethod.email, match.group(0)
+def classify_apply_target(url: str | None, verified_contact_email: str | None = None) -> tuple[ApplyMethod, str]:
+    """Decide how an application reaches the employer.
+
+    ``verified_contact_email`` must come from a structured, source-provided
+    field the ingestion adapter itself trusts (per-source verification is the
+    adapter's job) — never from scanning free-text description content. A
+    listing's description is untrusted, ingested text: regexing an email
+    address out of it and then auto-emailing a candidate's CV there lets
+    anyone who can influence that text (a scraped source, a compromised
+    upstream feed) redirect real applications to an address of their choosing.
+    Absent a verified contact email, every listing routes through the
+    ``ats_link`` path, which never leaves the platform automatically — the
+    user completes it themselves on the employer's own page.
+    """
+    if verified_contact_email:
+        return ApplyMethod.email, verified_contact_email
     if url:
         return ApplyMethod.ats_link, url
     raise ValueError("Listing has no apply target")
@@ -50,7 +59,10 @@ def classify_apply_target(url: str | None, description: str) -> tuple[ApplyMetho
 def normalize_adzuna(raw: dict) -> NormalizedListing:
     title = raw.get("title") or "Untitled opportunity"
     description = raw.get("description") or ""
-    apply_method, apply_target = classify_apply_target(raw.get("redirect_url"), description)
+    # Adzuna's API exposes no structured, verified contact-email field — only
+    # a redirect_url to the employer/ATS's own apply page — so every Adzuna
+    # listing is classified ats_link. See classify_apply_target's docstring.
+    apply_method, apply_target = classify_apply_target(raw.get("redirect_url"))
     company = (raw.get("company") or {}).get("display_name")
     location = (raw.get("location") or {}).get("display_name")
     posted_at = None

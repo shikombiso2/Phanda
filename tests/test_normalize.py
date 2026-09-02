@@ -5,17 +5,25 @@ from app.listings.ingestion.normalize import classify_apply_target, classify_lis
 
 
 class NormalizeTests(unittest.TestCase):
-    def test_email_apply_takes_precedence_when_email_is_in_description(self):
-        method, target = classify_apply_target("https://example.com/apply", "Send your CV to jobs@example.co.za")
+    def test_untrusted_description_text_is_never_used_as_an_apply_target(self):
+        """An email address embedded in scraped/free-text description content
+        must never become the apply target — only a source-verified,
+        structured contact email may. Otherwise anything that can influence
+        that text can redirect a candidate's CV to an address it chose."""
+        method, target = classify_apply_target("https://example.com/apply")
+
+        self.assertEqual(method, ApplyMethod.ats_link)
+        self.assertEqual(target, "https://example.com/apply")
+
+    def test_verified_contact_email_is_used_when_a_source_provides_one(self):
+        method, target = classify_apply_target("https://example.com/apply", verified_contact_email="jobs@example.co.za")
 
         self.assertEqual(method, ApplyMethod.email)
         self.assertEqual(target, "jobs@example.co.za")
 
-    def test_url_apply_is_required_for_ats_link(self):
-        method, target = classify_apply_target("https://example.com/apply", "Apply online")
-
-        self.assertEqual(method, ApplyMethod.ats_link)
-        self.assertEqual(target, "https://example.com/apply")
+    def test_no_target_at_all_is_rejected(self):
+        with self.assertRaises(ValueError):
+            classify_apply_target(None)
 
     def test_listing_type_keywords(self):
         self.assertEqual(classify_listing_type("IT Learnership", ""), ListingType.learnership)

@@ -115,10 +115,14 @@ def _verify_full_schema(url) -> None:
 
 
 def _verify_empty(url) -> None:
+    """`downgrade base` intentionally leaves `alembic_version` behind -- that
+    table is Alembic's own bookkeeping, not part of the application schema,
+    and it does not drop it on downgrade (verified against real PostgreSQL:
+    it persists with its row cleared, not removed)."""
     engine = create_engine(url)
     try:
-        tables = set(inspect(engine).get_table_names())
-        assert not tables, f"downgrade base left tables behind: {tables}"
+        tables = set(inspect(engine).get_table_names()) - {"alembic_version"}
+        assert not tables, f"downgrade base left application tables behind: {tables}"
     finally:
         engine.dispose()
 

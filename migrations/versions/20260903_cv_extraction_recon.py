@@ -6,11 +6,16 @@ enqueue) or whose worker crashed mid-extraction had no mechanism to recover
 -- it sat in `uploaded` or `extracting` forever, silently blocking tailoring
 and email-apply for that user. See reconcile_stale_cv_extractions in
 app/cv_tailoring/tasks.py.
+
+Revision id kept to <=32 chars: Alembic's default alembic_version table is
+VARCHAR(32) and does not truncate gracefully -- a longer id fails the
+upgrade with a StringDataRightTruncation error (verified against real
+PostgreSQL; the original id here was 37 chars and hit exactly this).
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "20260903_cv_extraction_reconciliation"
+revision = "20260903_cv_extraction_recon"
 down_revision = "20260902_email_password_auth"
 branch_labels = None
 depends_on = None

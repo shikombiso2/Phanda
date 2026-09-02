@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "20260904_listing_category"
-down_revision = "20260903_cv_extraction_reconciliation"
+down_revision = "20260903_cv_extraction_recon"
 branch_labels = None
 depends_on = None
 

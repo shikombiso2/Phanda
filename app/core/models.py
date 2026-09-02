@@ -237,6 +237,11 @@ class Listing(Base):
     apply_target: Mapped[str] = mapped_column(String(1024))
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    """Refreshed every time this listing appears in a source pull. A
+    scheduled task deactivates any listing not seen for
+    Settings.listing_stale_after_days -- it disappeared from the source,
+    which most often means it was filled or withdrawn."""
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 

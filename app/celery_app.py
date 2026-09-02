@@ -32,6 +32,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.listings.ingestion.tasks.ingest_adzuna",
         "schedule": 4 * 60 * 60,
     },
+    "deactivate-stale-listings-daily": {
+        "task": "app.listings.ingestion.tasks.deactivate_stale_listings",
+        "schedule": 24 * 60 * 60,
+    },
     "reconcile-stale-tailoring-every-5-minutes": {
         "task": "app.cv_tailoring.tasks.reconcile_stale_tailoring",
         "schedule": 5 * 60,

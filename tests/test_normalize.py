@@ -43,6 +43,7 @@ class NormalizeTests(unittest.TestCase):
                 "salary_min": 5000.0,
                 "salary_max": 8000.0,
                 "created": "2026-08-30T10:00:00Z",
+                "category": {"tag": "admin-jobs", "label": "Admin Jobs"},
             }
         )
 
@@ -50,6 +51,13 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(row.source_listing_id, "abc-123")
         self.assertEqual(row.apply_method, ApplyMethod.ats_link)
         self.assertEqual(row.required_skills, ["admin", "communication", "excel"])
+        self.assertEqual(row.category, "Admin Jobs")
+
+    def test_missing_category_is_none_not_an_error(self):
+        row = normalize_adzuna(
+            {"id": "x", "title": "Role", "description": "d", "redirect_url": "https://example.test/apply"}
+        )
+        self.assertIsNone(row.category)
 
 
 if __name__ == "__main__":

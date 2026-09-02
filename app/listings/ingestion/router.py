@@ -27,5 +27,5 @@ async def run_adzuna_ingestion(
     settings = get_settings()
     if not settings.ingestion_trigger_secret or not ingestion_secret or not hmac.compare_digest(ingestion_secret, settings.ingestion_trigger_secret):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing ingestion secret")
-    rows = await AdzunaClient().fetch_page()
+    rows = await AdzunaClient().fetch_all()
     return {"ingested": upsert_listings(db, rows)}

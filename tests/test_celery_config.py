@@ -20,6 +20,7 @@ class CeleryConfigurationTests(unittest.TestCase):
             "app.cv_tailoring.tasks.process_tailored_document",
             "app.cv_tailoring.tasks.reconcile_stale_tailoring",
             "app.cv_tailoring.tasks.reconcile_stale_cv_extractions",
+            "app.listings.ingestion.tasks.deactivate_stale_listings",
             "app.applications.tasks.send_application_email",
         ):
             self.assertIn(task_name, celery_app.tasks)
@@ -30,6 +31,7 @@ class CeleryConfigurationTests(unittest.TestCase):
             scheduled_tasks,
             {
                 "app.listings.ingestion.tasks.ingest_adzuna",
+                "app.listings.ingestion.tasks.deactivate_stale_listings",
                 "app.cv_tailoring.tasks.reconcile_stale_tailoring",
                 "app.cv_tailoring.tasks.reconcile_stale_cv_extractions",
             },

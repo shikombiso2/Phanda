@@ -90,7 +90,7 @@ def _verify_full_schema(url) -> None:
         assert "phone_number" not in {c["name"] for c in inspector.get_columns("users")}, "phone_number should have been dropped"
         _columns(inspector, "profiles", {"active_cv_version_id"})
         _columns(inspector, "applications", {"tailored_document_id", "submission_status", "idempotency_key", "email_provider_message_id", "email_attempt_count"})
-        _columns(inspector, "cv_versions", {"candidate_facts_json", "extracted_text_key", "sha256"})
+        _columns(inspector, "cv_versions", {"candidate_facts_json", "extracted_text_key", "sha256", "attempt_count", "processing_lease_expires_at"})
         _columns(inspector, "tailored_documents", {"listing_snapshot_json", "profile_snapshot_json", "idempotency_key", "correction_attempted"})
         _columns(inspector, "user_auth_identities", {"provider", "provider_subject"})
         _columns(inspector, "refresh_tokens", {"token_hash", "expires_at", "revoked_at", "rotated_from_id"})

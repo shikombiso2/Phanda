@@ -1,12 +1,14 @@
 import hashlib
 import uuid
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.models import CvVersion, Profile, User
+from app.core.models import CvVersion, Profile, User, utcnow
 from app.core.security import get_current_user
 from app.core.storage import put_bytes, read_upload
 from app.cv_tailoring.extraction import CvExtractionError, validate_upload
@@ -93,6 +95,12 @@ async def upload_cv(
         content_type=info.content_type,
         byte_size=len(data),
         sha256=file_hash,
+        # Set at creation, not just when the task starts: if `.delay()` below
+        # never reaches Redis (an outage between commit and enqueue), the
+        # version would otherwise sit in `uploaded` with no lease at all --
+        # invisible to reconcile_stale_cv_extractions, which only looks at
+        # versions that already have one.
+        processing_lease_expires_at=utcnow() + timedelta(minutes=get_settings().cv_extraction_lease_minutes),
     )
     db.add(cv_version)
     profile.profile_completeness = compute_profile_completeness(profile)

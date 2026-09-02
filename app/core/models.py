@@ -204,6 +204,13 @@ class CvVersion(Base):
     failure_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    processing_lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """Set while a Celery worker is (or should be) extracting this version.
+    A scheduled reconciliation task requeues or fails versions whose lease
+    has expired -- mirroring TailoredDocument's lease, which exists for the
+    same reason: a worker crash between "committed the enqueue" and
+    "finished the task" must not leave the row stuck forever."""
 
 
 class Listing(Base):

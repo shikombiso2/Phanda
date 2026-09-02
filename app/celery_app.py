@@ -12,6 +12,8 @@ def _configure_worker_logging(**_kwargs) -> None:
     """Celery installs its own logging by default; this opts out of that so
     worker and beat processes emit the same structured JSON as the API."""
     configure_logging()
+
+
 celery_app = Celery("phanda", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(
     imports=(
@@ -33,5 +35,9 @@ celery_app.conf.beat_schedule = {
     "reconcile-stale-tailoring-every-5-minutes": {
         "task": "app.cv_tailoring.tasks.reconcile_stale_tailoring",
         "schedule": 5 * 60,
-    }
+    },
+    "reconcile-stale-cv-extractions-every-5-minutes": {
+        "task": "app.cv_tailoring.tasks.reconcile_stale_cv_extractions",
+        "schedule": 5 * 60,
+    },
 }

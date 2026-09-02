@@ -19,6 +19,18 @@ class CeleryConfigurationTests(unittest.TestCase):
             "app.cv_tailoring.tasks.extract_cv_version",
             "app.cv_tailoring.tasks.process_tailored_document",
             "app.cv_tailoring.tasks.reconcile_stale_tailoring",
+            "app.cv_tailoring.tasks.reconcile_stale_cv_extractions",
             "app.applications.tasks.send_application_email",
         ):
             self.assertIn(task_name, celery_app.tasks)
+
+    def test_beat_schedule_covers_ingestion_and_both_reconciliation_jobs(self):
+        scheduled_tasks = {entry["task"] for entry in celery_app.conf.beat_schedule.values()}
+        self.assertEqual(
+            scheduled_tasks,
+            {
+                "app.listings.ingestion.tasks.ingest_adzuna",
+                "app.cv_tailoring.tasks.reconcile_stale_tailoring",
+                "app.cv_tailoring.tasks.reconcile_stale_cv_extractions",
+            },
+        )

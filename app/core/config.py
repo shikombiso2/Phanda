@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     premium_monthly_cv_tailor: int = 100
     tailoring_reservation_minutes: int = 30
     tailoring_max_attempts: int = 3
+    cv_extraction_lease_minutes: int = 15
+    cv_extraction_max_attempts: int = 3
 
     adzuna_app_id: str | None = None
     adzuna_app_key: str | None = None

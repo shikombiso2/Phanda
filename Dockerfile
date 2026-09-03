@@ -29,6 +29,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # this, since COPY without --chown leaves everything root-owned).
 COPY --chown=phanda:phanda . .
 
+# Pre-create the local-storage fallback directory, owned by phanda, before
+# it can become a volume mount point. Docker populates a *fresh* named
+# volume from whatever already exists in the image at that path on first
+# mount -- including ownership -- so this is what makes the phanda_storage
+# volume in docker-compose.yml land owned by phanda instead of the root
+# ownership every empty named volume starts with otherwise (verified: CV
+# upload failed with "CV storage is unavailable" -- PermissionError -- until
+# this existed for the volume to inherit from).
+RUN mkdir -p .phanda-storage && chown phanda:phanda .phanda-storage
+
 USER phanda
 
 EXPOSE 8000

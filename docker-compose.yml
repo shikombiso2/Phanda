@@ -47,6 +47,15 @@ services:
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    # Shared with worker: without S3 configured, CV uploads (api) and CV
+    # extraction/tailoring (worker) both read/write local storage -- as
+    # separate containers they have separate filesystems, so without this
+    # volume the worker gets FileNotFoundError for every file the api ever
+    # wrote (verified: a real CV upload failed extraction with exactly that
+    # error until this was added). Only relevant when S3_BUCKET is unset;
+    # production should configure S3 instead of relying on this volume.
+    volumes:
+      - phanda_storage:/app/.phanda-storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,6 +71,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://phanda:phanda@postgres:5432/phanda
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      - phanda_storage:/app/.phanda-storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -87,3 +98,4 @@ services:
 
 volumes:
   postgres_data:
+  phanda_storage:

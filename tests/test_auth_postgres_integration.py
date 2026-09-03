@@ -13,12 +13,14 @@ import unittest
 import uuid
 from unittest.mock import patch
 
+import redis
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.app_factory import create_app
 from app.auth.google import VerifiedGoogleIdentity
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.models import Profile, RefreshToken, User, UserAuthIdentity
 from tests.postgres_harness import PostgresHarness
@@ -43,16 +45,35 @@ class AuthFlowIntegrationTests(unittest.TestCase):
 
         cls.app.dependency_overrides[get_db] = override_db
         cls.client = TestClient(cls.app)
+        cls.redis = redis.from_url(get_settings().redis_url)
+
+    def setUp(self):
+        # check_rate_limit (app/core/rate_limit.py) keys against real Redis,
+        # which -- unlike PostgresHarness's disposable database -- is not
+        # fresh per test run. Without this, a real 429 from an earlier test
+        # or an earlier run of this same suite masks whatever this test is
+        # actually trying to verify (confirmed: this is what "429 != 201"
+        # and its cascading "the user was never created" failures were).
+        for pattern in ("ratelimit:register:*", "ratelimit:login:*", "ratelimit:google:*", "ratelimit:refresh:*"):
+            keys = self.redis.keys(pattern)
+            if keys:
+                self.redis.delete(*keys)
 
     @classmethod
     def tearDownClass(cls):
         cls.app.dependency_overrides.clear()
         cls.client.close()
+        cls.redis.close()
         cls.engine.dispose()
         cls.harness.drop()
 
     def _unique_email(self) -> str:
-        return f"user-{uuid.uuid4().hex[:12]}@example.test"
+        # example.com, not example.test: email-validator (which backs
+        # pydantic's EmailStr, used by RegisterIn/LoginIn) correctly rejects
+        # .test as a reserved, non-deliverable TLD -- verified directly
+        # against a real request. example.com is RFC 2606 reserved
+        # specifically for documentation/testing and is accepted.
+        return f"user-{uuid.uuid4().hex[:12]}@example.com"
 
     def test_register_creates_user_and_profile_and_returns_tokens(self):
         email = self._unique_email()
@@ -150,6 +171,23 @@ class AuthFlowIntegrationTests(unittest.TestCase):
 
         self.assertEqual(self.client.post("/auth/token/refresh", json={"refresh_token": refresh_token}).status_code, 401)
         self.assertEqual(self.client.post("/auth/token/refresh", json={"refresh_token": second_refresh_token}).status_code, 401)
+
+    def test_rate_limiting_is_enforced_by_real_redis(self):
+        """Exhausts the real per-IP register limit (10/hour) against the
+        actual Redis container -- not a mock -- and confirms the 11th
+        request is rejected with a Retry-After header, and that requests
+        under the limit are unaffected."""
+        responses = [
+            self.client.post("/auth/register", json={"email": self._unique_email(), "password": "Correct-Horse-1", "confirm_password": "Correct-Horse-1"})
+            for _ in range(10)
+        ]
+        self.assertTrue(all(r.status_code == 201 for r in responses), [r.status_code for r in responses])
+
+        limited = self.client.post("/auth/register", json={"email": self._unique_email(), "password": "Correct-Horse-1", "confirm_password": "Correct-Horse-1"})
+
+        self.assertEqual(limited.status_code, 429)
+        self.assertEqual(limited.json()["code"], "rate_limited")
+        self.assertIn("Retry-After", limited.headers)
 
     @patch("app.auth.router.verify_google_id_token")
     def test_google_signup_creates_a_new_user(self, verify):

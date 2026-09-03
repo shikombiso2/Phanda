@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.models import (
     ApplyMethod, CvVersion, CvVersionStatus, ExperienceLevel, FeatureUsage, JobType, Listing, ListingType,
-    Profile, ReservationStatus, TailoredDocument, TailoredDocumentStatus, TailoringRequestReservation, User, utcnow,
+    Profile, ReservationSource, ReservationStatus, TailoredDocument, TailoredDocumentStatus,
+    TailoringRequestReservation, User, Wallet, utcnow,
 )
 from app.app_factory import create_app
 from app.core.db import get_db
@@ -147,6 +148,64 @@ class ReservationPostgresIntegrationTests(unittest.TestCase):
         self.assertEqual(retry.document.id, failed.document.id)
         with self.Session() as db:
             self.assertEqual(db.scalar(select(func.count(TailoringRequestReservation.id)).where(TailoringRequestReservation.tailored_document_id == failed.document.id),), 1)
+
+    def test_releasing_a_rewarded_reservation_refunds_a_brand_new_wallet(self):
+        """Regression test: release_reservation's `if not wallet: wallet =
+        Wallet(...)` branch used to omit `balance=0`. SQLAlchemy's
+        column-level default is applied at flush/INSERT time, not at
+        construction, so `wallet.balance` was still None in memory and the
+        following `wallet.balance += 1` raised TypeError -- but only for a
+        user's *first ever* rewarded-tailoring wallet transaction, which no
+        existing test exercised (every other reservation test here uses the
+        free-quota path). Verified failing against real PostgreSQL before
+        this fix existed."""
+        with self.Session() as db:
+            listing = self._listing(db)
+            # Exhaust free quota so reserve_tailoring_request must fall back
+            # to the rewarded-credit source.
+            db.add(FeatureUsage(user_id=self.user_id, feature_key="cv_tailor", period_start=utcnow().date().replace(day=1), free_uses_count=3))
+            db.add(Wallet(user_id=self.user_id, currency_key="tailoring_requests", balance=1))
+            db.commit()
+
+        reserved = self._reserve(listing.id, "rewarded-release-key")
+        with self.Session() as db:
+            reservation = db.scalar(select(TailoringRequestReservation).where(TailoringRequestReservation.tailored_document_id == reserved.document.id))
+            self.assertEqual(reservation.source, ReservationSource.rewarded)
+            wallet = db.scalar(select(Wallet).where(Wallet.user_id == self.user_id, Wallet.currency_key == "tailoring_requests"))
+            self.assertEqual(wallet.balance, 0, "the rewarded credit should have been spent on reservation")
+
+            document = db.get(TailoredDocument, reserved.document.id)
+            document.status = TailoredDocumentStatus.failed
+            release_reservation(db, document)  # must not raise
+            db.commit()
+
+            wallet = db.scalar(select(Wallet).where(Wallet.user_id == self.user_id, Wallet.currency_key == "tailoring_requests"))
+            self.assertEqual(wallet.balance, 1, "a released rewarded reservation must refund the spent credit")
+
+    def test_retrying_a_failed_rewarded_reservation_refunds_before_re_reserving(self):
+        """Same bug, the other call site: _release_existing_reservation
+        (invoked when reserve_tailoring_request retries a failed/cancelled
+        document). Deletes the wallet row entirely between the first
+        reservation and the retry so the retry hits the same
+        wallet-does-not-exist-yet branch as a first-time user."""
+        with self.Session() as db:
+            listing = self._listing(db)
+            db.add(FeatureUsage(user_id=self.user_id, feature_key="cv_tailor", period_start=utcnow().date().replace(day=1), free_uses_count=3))
+            db.add(Wallet(user_id=self.user_id, currency_key="tailoring_requests", balance=1))
+            db.commit()
+
+        first = self._reserve(listing.id, "rewarded-retry-key-1")
+        with self.Session() as db:
+            document = db.get(TailoredDocument, first.document.id)
+            document.status = TailoredDocumentStatus.failed
+            db.execute(Wallet.__table__.delete().where(Wallet.user_id == self.user_id, Wallet.currency_key == "tailoring_requests"))
+            db.commit()
+
+        retried = self._reserve(listing.id, "rewarded-retry-key-2")  # must not raise
+        self.assertTrue(retried.created)
+        with self.Session() as db:
+            reservation = db.scalar(select(TailoringRequestReservation).where(TailoringRequestReservation.tailored_document_id == retried.document.id))
+            self.assertEqual(reservation.source, ReservationSource.rewarded)
 
     def test_stale_lease_requeues_or_releases_once(self):
         with self.Session() as db:

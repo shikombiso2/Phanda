@@ -31,9 +31,9 @@ class StaleCvExtractionTests(unittest.TestCase):
         cls.engine.dispose()
         cls.harness.drop()
 
-    def _cv(self, db, user_id, *, status: CvVersionStatus, lease_expires_at) -> CvVersion:
+    def _cv(self, db, user_id, *, version_number: int, status: CvVersionStatus, lease_expires_at) -> CvVersion:
         version = CvVersion(
-            id=uuid.uuid4(), user_id=user_id, version_number=1, status=status,
+            id=uuid.uuid4(), user_id=user_id, version_number=version_number, status=status,
             storage_key=f"test/{uuid.uuid4()}.txt", filename="cv.txt", content_type="text/plain",
             byte_size=10, sha256=uuid.uuid4().hex * 2, processing_lease_expires_at=lease_expires_at,
         )
@@ -45,10 +45,12 @@ class StaleCvExtractionTests(unittest.TestCase):
             user = User(id=uuid.uuid4(), email=f"user-{uuid.uuid4().hex[:12]}@example.test")
             db.add(user)
             db.flush()
-            expired_uploaded = self._cv(db, user.id, status=CvVersionStatus.uploaded, lease_expires_at=utcnow() - timedelta(minutes=1))
-            expired_extracting = self._cv(db, user.id, status=CvVersionStatus.extracting, lease_expires_at=utcnow() - timedelta(minutes=1))
-            still_valid = self._cv(db, user.id, status=CvVersionStatus.extracting, lease_expires_at=utcnow() + timedelta(minutes=10))
-            no_lease_yet = self._cv(db, user.id, status=CvVersionStatus.uploaded, lease_expires_at=None)
+            # uq_cv_version_number is (user_id, version_number): each of this
+            # user's versions needs a distinct number, same as production.
+            expired_uploaded = self._cv(db, user.id, version_number=1, status=CvVersionStatus.uploaded, lease_expires_at=utcnow() - timedelta(minutes=1))
+            expired_extracting = self._cv(db, user.id, version_number=2, status=CvVersionStatus.extracting, lease_expires_at=utcnow() - timedelta(minutes=1))
+            still_valid = self._cv(db, user.id, version_number=3, status=CvVersionStatus.extracting, lease_expires_at=utcnow() + timedelta(minutes=10))
+            no_lease_yet = self._cv(db, user.id, version_number=4, status=CvVersionStatus.uploaded, lease_expires_at=None)
             db.commit()
 
             stale = set(find_stale_cv_versions(db))
@@ -63,8 +65,8 @@ class StaleCvExtractionTests(unittest.TestCase):
             user = User(id=uuid.uuid4(), email=f"user-{uuid.uuid4().hex[:12]}@example.test")
             db.add(user)
             db.flush()
-            ready = self._cv(db, user.id, status=CvVersionStatus.ready, lease_expires_at=utcnow() - timedelta(days=1))
-            failed = self._cv(db, user.id, status=CvVersionStatus.failed, lease_expires_at=utcnow() - timedelta(days=1))
+            ready = self._cv(db, user.id, version_number=1, status=CvVersionStatus.ready, lease_expires_at=utcnow() - timedelta(days=1))
+            failed = self._cv(db, user.id, version_number=2, status=CvVersionStatus.failed, lease_expires_at=utcnow() - timedelta(days=1))
             db.commit()
 
             stale = set(find_stale_cv_versions(db))

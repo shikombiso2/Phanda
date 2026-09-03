@@ -292,7 +292,12 @@ def release_reservation(db: Session, document: TailoredDocument) -> None:
             .with_for_update()
         )
         if not wallet:
-            wallet = Wallet(user_id=document.user_id, currency_key=TAILORING_CURRENCY)
+            # balance=0 explicitly -- see the identical comment in
+            # revenuecat_webhook._grant_verified_tailoring_reward. Without
+            # it, `wallet.balance` is None (not 0) until the row is actually
+            # flushed, and `+= 1` below raises TypeError on a brand-new
+            # wallet (verified against real PostgreSQL).
+            wallet = Wallet(user_id=document.user_id, currency_key=TAILORING_CURRENCY, balance=0)
             db.add(wallet)
         wallet.balance += 1
     reservation.status = ReservationStatus.released
@@ -373,7 +378,7 @@ def _release_existing_reservation(db: Session, document_id: uuid.UUID) -> None:
                 .with_for_update()
             )
             if not wallet:
-                wallet = Wallet(user_id=reservation.user_id, currency_key=TAILORING_CURRENCY)
+                wallet = Wallet(user_id=reservation.user_id, currency_key=TAILORING_CURRENCY, balance=0)
                 db.add(wallet)
             wallet.balance += 1
         reservation.status = ReservationStatus.released

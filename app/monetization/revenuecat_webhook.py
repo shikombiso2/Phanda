@@ -128,7 +128,12 @@ def _grant_verified_tailoring_reward(db: Session, user_id: uuid.UUID, event: dic
     db.add(RewardEvent(provider="revenuecat", external_event_id=str(external_event_id), user_id=user_id, credits_granted=1))
     wallet = db.scalar(select(Wallet).where(Wallet.user_id == user_id, Wallet.currency_key == TAILORING_CURRENCY))
     if not wallet:
-        wallet = Wallet(user_id=user_id, currency_key=TAILORING_CURRENCY)
+        # balance=0 explicitly: the column's default=0 is applied by
+        # SQLAlchemy at flush/INSERT time, not at object construction, so
+        # `wallet.balance` reads as None (not 0) until then -- the `+= 1`
+        # below would otherwise raise TypeError on a brand-new wallet
+        # (verified against real PostgreSQL).
+        wallet = Wallet(user_id=user_id, currency_key=TAILORING_CURRENCY, balance=0)
         db.add(wallet)
     wallet.balance += 1
     emit_event("reward_granted", provider="revenuecat", credits=1)

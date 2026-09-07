@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Landing } from "./pages/Landing";
-import { Register } from "./pages/Register";
+import { SignupWizard } from "./features/onboarding/SignupWizard";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { ProfileWizard } from "./features/onboarding/ProfileWizard";
@@ -20,7 +20,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Landing />} />
-        <Route path="/register" element={<Register />} />
+        <Route path="/register" element={<SignupWizard />} />
         <Route path="/login" element={<Login />} />
         <Route
           path="/home"

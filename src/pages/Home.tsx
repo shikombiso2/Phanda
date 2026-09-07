@@ -1,11 +1,25 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { AppHeader } from "../components/AppHeader";
 import { Button } from "../components/Button";
 import { CheckIcon, DiggingSearchIcon } from "../components/icons";
 import { useAuthStore } from "../store/authStore";
 
+interface OnboardingIssueState {
+  onboardingIssue?: "profile" | "cv" | "both";
+}
+
+const ISSUE_MESSAGES: Record<"profile" | "cv" | "both", string> = {
+  profile: "Your account is ready, but we couldn't save your profile answers. You can add them below.",
+  cv: "Your account is ready, but we couldn't process your CV. You can upload it again below.",
+  both: "Your account is ready, but we couldn't save your profile or your CV. You can finish both below.",
+};
+
 export function Home() {
   const profile = useAuthStore((s) => s.profile);
+  const location = useLocation();
+  const onboardingIssue = (location.state as OnboardingIssueState | null)?.onboardingIssue;
+  const [dismissedNotice, setDismissedNotice] = useState(false);
 
   const hasProfile = (profile?.profile_completeness ?? 0) > 0;
   const hasCv = Boolean(profile?.active_cv_version_id);
@@ -14,6 +28,19 @@ export function Home() {
   return (
     <div className="min-h-screen bg-paper">
       <AppHeader />
+
+      {onboardingIssue && !dismissedNotice && (
+        <div className="mx-auto mt-6 flex max-w-2xl items-start justify-between gap-4 rounded-[10px] bg-signal-soft px-5 py-4">
+          <p className="font-body text-sm font-medium text-signal">{ISSUE_MESSAGES[onboardingIssue]}</p>
+          <button
+            onClick={() => setDismissedNotice(true)}
+            aria-label="Dismiss"
+            className="shrink-0 font-body text-sm font-medium text-signal/70 hover:text-signal"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <main className="mx-auto flex max-w-2xl flex-col items-center px-5 py-20 text-center sm:px-8">
         {hasNeither ? (

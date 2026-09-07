@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/* Self-hosted variable fonts: no request to fonts.googleapis.com. That
+   matters twice over here -- this is a PWA meant to work on patchy data,
+   and every avoided cross-origin request is one less thing that can stall
+   first paint on a low-end Android phone. */
+@import "@fontsource-variable/archivo";
+@import "@fontsource-variable/work-sans";
+
+@theme {
+  /* Phanda Green stays the fixed brand primary. Marigold Gold is the
+     second brand color -- not a generic accent, but a deliberate nod to
+     "phanda" (to hustle, to dig for something): the color of what you find
+     when you go looking. Ink is a near-black with a whisper of green in
+     it rather than a flat #111, so text and brand read as one family. */
+  --color-phanda-green: #0b8f55;
+  --color-phanda-green-dark: #086b40;
+  --color-phanda-gold: #e8a93a;
+  --color-phanda-gold-dark: #c48a24;
+  --color-ink: #0e1a14;
+  --color-paper: #ffffff;
+  --color-mist: #f6f7f5;
+  --color-hairline: #dde3df;
+  --color-signal: #c4432e;
+  --color-signal-soft: #fbeae7;
+
+  --font-display: "Archivo Variable", "Archivo", sans-serif;
+  --font-body: "Work Sans Variable", "Work Sans", sans-serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Visible keyboard focus everywhere, in brand green rather than the
+   browser default blue -- removed nowhere in this app. */
+:focus-visible {
+  outline: 2px solid var(--color-phanda-green);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

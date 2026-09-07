@@ -14,10 +14,9 @@ const JOB_TYPES: { value: JobType; label: string }[] = [
 ];
 
 const EXPERIENCE_LEVELS: { value: ExperienceLevel; label: string }[] = [
-  { value: "none", label: "No work experience yet" },
-  { value: "under_1_year", label: "Under a year" },
-  { value: "1_to_3_years", label: "1 to 3 years" },
-  { value: "3_plus_years", label: "3+ years" },
+  { value: "none", label: "No experience yet" },
+  { value: "some", label: "Some experience" },
+  { value: "experienced", label: "Experienced" },
 ];
 
 const TOTAL_STEPS = 4;

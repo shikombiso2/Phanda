@@ -36,7 +36,7 @@ export interface CvUploadOut {
 }
 
 export type JobType = "any" | "learnership" | "internship" | "full_time" | "part_time";
-export type ExperienceLevel = "none" | "under_1_year" | "1_to_3_years" | "3_plus_years";
+export type ExperienceLevel = "none" | "some" | "experienced";
 
 export interface ProfileOut {
   email: string;

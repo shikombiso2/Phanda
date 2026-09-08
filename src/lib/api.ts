@@ -12,6 +12,20 @@ if (!BASE_URL) {
 }
 
 /**
+ * Joins the base URL and a path with exactly one slash between them,
+ * regardless of whether BASE_URL ends in one (the documented .env.example
+ * value does: "http://localhost:8000/") and regardless of whether the
+ * caller's path starts with one (every call site's does: "/auth/register").
+ * Naively concatenating the two, as this used to do, produces
+ * "http://localhost:8000//auth/register" -- a double slash that some
+ * routers normalise away and others (this backend included, on at least
+ * one path) don't.
+ */
+function joinUrl(base: string, path: string): string {
+  return `${base.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+/**
  * Single-flight refresh, the JS equivalent of the mutex-plus-comparison
  * pattern: one shared module-level variable holds the in-flight refresh
  * Promise. Every caller that hits a 401 checks this variable; the first one
@@ -36,7 +50,7 @@ async function refreshAccessToken(): Promise<string> {
 
     let response: Response;
     try {
-      response = await fetch(`${BASE_URL}/auth/token/refresh`, {
+      response = await fetch(joinUrl(BASE_URL, "/auth/token/refresh"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refreshToken }),
@@ -98,7 +112,7 @@ async function request<T>(path: string, options: RequestOptions = {}, isRetry = 
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
+    response = await fetch(joinUrl(BASE_URL, path), {
       ...rest,
       headers: finalHeaders,
       body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),

@@ -17,6 +17,8 @@ class ListingOut(BaseModel):
     category: str | None
     salary_min: int | None
     salary_max: int | None
+    salary_period: str | None
+    salary_currency: str | None
     description: str
     required_skills: list[str]
     apply_method: ApplyMethod
@@ -39,6 +41,8 @@ class ListingSummaryOut(BaseModel):
     listing_type: ListingType
     salary_min: int | None
     salary_max: int | None
+    salary_period: str | None
+    salary_currency: str | None
     required_skills: list[str]
     posted_at: datetime | None
 

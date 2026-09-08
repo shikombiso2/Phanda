@@ -1,0 +1,84 @@
+import { NavLink, useNavigate } from "react-router-dom";
+import { Mark } from "./Mark";
+import { useAuthStore } from "../store/authStore";
+import { SearchIcon, HeartIcon, TrackIcon, UserIcon } from "./icons";
+
+const TABS = [
+  { to: "/home", label: "Find", icon: SearchIcon, end: true },
+  { to: "/saved", label: "Saved", icon: HeartIcon },
+  { to: "/track", label: "Track", icon: TrackIcon },
+  { to: "/onboarding/profile", label: "Profile", icon: UserIcon },
+];
+
+/**
+ * Replaces the single-purpose AppHeader now that there's more than one
+ * screen: a top bar everywhere (brand + sign out), and on mobile a second,
+ * fixed bottom tab bar -- the standard place a thumb expects primary
+ * navigation on a phone-sized screen, which is this product's primary
+ * device. Desktop gets the same four destinations as inline top-bar links
+ * instead of duplicating a bottom bar nobody's thumb needs there.
+ */
+export function AppNav() {
+  const navigate = useNavigate();
+  const logout = useAuthStore((s) => s.logout);
+
+  function signOut() {
+    logout();
+    navigate("/login", { replace: true });
+  }
+
+  return (
+    <>
+      <header className="flex items-center justify-between border-b border-hairline px-5 py-4 sm:px-8">
+        <Mark />
+        <nav className="hidden items-center gap-6 sm:flex">
+          {TABS.map((tab) => (
+            <NavLink
+              key={tab.to}
+              to={tab.to}
+              end={tab.end}
+              className={({ isActive }) =>
+                `font-body text-sm font-medium transition-colors ${isActive ? "text-phanda-green-dark" : "text-ink/60 hover:text-ink"}`
+              }
+            >
+              {tab.label}
+            </NavLink>
+          ))}
+        </nav>
+        <button onClick={signOut} className="font-body text-sm font-medium text-ink/70 hover:text-ink">
+          Sign out
+        </button>
+      </header>
+
+      <nav
+        className="fixed inset-x-0 bottom-0 z-10 flex border-t border-hairline bg-paper pb-[env(safe-area-inset-bottom)] sm:hidden"
+        aria-label="Primary"
+      >
+        {TABS.map((tab) => (
+          <NavLink
+            key={tab.to}
+            to={tab.to}
+            end={tab.end}
+            className={({ isActive }) =>
+              `flex flex-1 flex-col items-center gap-1 py-2.5 font-body text-xs font-medium transition-colors ${
+                isActive ? "text-phanda-green-dark" : "text-ink/50"
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <tab.icon className="h-5 w-5" filled={isActive} />
+                {tab.label}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+    </>
+  );
+}
+
+/** Bottom padding for page content on mobile, so the fixed tab bar never
+ * covers the last item in a list. Import this className rather than
+ * guessing the bar's height per page. */
+export const BOTTOM_NAV_SPACER_CLASS = "pb-20 sm:pb-0";

@@ -68,10 +68,111 @@ export interface ProfileUpdate {
   desired_salary_max?: number | null;
 }
 
+export type ListingType = "job" | "internship" | "learnership" | "apprenticeship" | "bursary";
+export type ApplyMethod = "ats_link" | "email";
+export type AppliedVia = "phanda_email" | "external_link";
+export type ApplicationStatus =
+  | "prepared"
+  | "external_started"
+  | "applied"
+  | "interview"
+  | "offer"
+  | "rejected"
+  | "withdrawn";
+
+/**
+ * salary_period/salary_currency are typed as plain `string | null`, not a
+ * literal union, on purpose: the database column is a free String(20)/
+ * String(8), not a backend-enforced enum (confirmed in app/core/models.py --
+ * ingestion stores whatever the source says, e.g. Himalayas' raw
+ * `salaryPeriod`/`currency` values, unconverted). Assuming a fixed set of
+ * values here would silently swallow anything outside it.
+ *
+ * Note these two fields are declared on the Listing model but are NOT
+ * currently included in ListingOut / ListingSummaryOut (verified by reading
+ * app/listings/schemas.py directly) -- the live API does not send them
+ * today. They're kept here, and every salary renderer already refuses to
+ * show an amount when either is missing, so this is forward-compatible
+ * with zero risk: today it just means salary never renders, which is the
+ * correct behaviour per the "never show an amount without its units" rule,
+ * not a bug to work around.
+ */
 export interface ListingSummary {
   id: string;
   title: string;
   company: string | null;
   location: string | null;
-  listing_type: string | null;
+  listing_type: ListingType;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_period?: string | null;
+  salary_currency?: string | null;
+  required_skills: string[];
+  posted_at: string | null;
+}
+
+export interface Listing {
+  id: string;
+  source: string;
+  source_listing_id: string;
+  title: string;
+  company: string | null;
+  location: string | null;
+  listing_type: ListingType;
+  category: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_period?: string | null;
+  salary_currency?: string | null;
+  description: string;
+  required_skills: string[];
+  apply_method: ApplyMethod;
+  apply_target: string;
+  posted_at: string | null;
+  ingested_at: string;
+  is_active: boolean;
+}
+
+export interface CompatibilityFactor {
+  key: string;
+  label: string;
+  probability: number;
+  weight: number;
+  detail: string | null;
+}
+
+export interface MatchExplanation {
+  score: number;
+  matched_skills: string[];
+  missing_skills: string[];
+  factors: CompatibilityFactor[];
+  summary: string;
+}
+
+export interface MatchedListing extends Listing {
+  match: MatchExplanation;
+}
+
+export interface ApplyOut {
+  id: string;
+  listing_id: string;
+  status: ApplicationStatus;
+  tailored_document_id: string | null;
+  applied_via: AppliedVia;
+  applied_at: string;
+  apply_method: ApplyMethod;
+  /** The employer's own application page when apply_method is "ats_link".
+   * Null for "email", where Phanda has already sent it on the user's
+   * behalf -- there's nothing left for the client to open. */
+  apply_target: string | null;
+}
+
+export interface ApplicationOut {
+  id: string;
+  listing_id: string;
+  listing: ListingSummary;
+  status: ApplicationStatus;
+  tailored_document_id: string | null;
+  applied_via: AppliedVia;
+  applied_at: string;
 }

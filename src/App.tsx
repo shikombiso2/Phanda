@@ -3,7 +3,10 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Landing } from "./pages/Landing";
 import { SignupWizard } from "./features/onboarding/SignupWizard";
 import { Login } from "./pages/Login";
-import { Home } from "./pages/Home";
+import { Find } from "./pages/Find";
+import { ListingDetail } from "./pages/ListingDetail";
+import { Saved } from "./pages/Saved";
+import { Track } from "./pages/Track";
 import { ProfileWizard } from "./features/onboarding/ProfileWizard";
 import { CvUpload } from "./features/onboarding/CvUpload";
 import { RequireAuth } from "./components/RequireAuth";
@@ -26,7 +29,31 @@ export default function App() {
           path="/home"
           element={
             <RequireAuth>
-              <Home />
+              <Find />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/listings/:id"
+          element={
+            <RequireAuth>
+              <ListingDetail />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/saved"
+          element={
+            <RequireAuth>
+              <Saved />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/track"
+          element={
+            <RequireAuth>
+              <Track />
             </RequireAuth>
           }
         />

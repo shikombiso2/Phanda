@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AppHeader } from "../../components/AppHeader";
+import { AppNav, BOTTOM_NAV_SPACER_CLASS } from "../../components/AppNav";
 import { Button } from "../../components/Button";
 import { CheckIcon } from "../../components/icons";
 import { ProgressState } from "../../components/ProgressState";
@@ -62,8 +62,8 @@ export function CvUpload() {
 
   return (
     <div className="min-h-screen bg-paper">
-      <AppHeader />
-      <main className="mx-auto max-w-md px-5 py-12 sm:px-8">
+      <AppNav />
+      <main className={`mx-auto max-w-md px-5 py-12 sm:px-8 ${BOTTOM_NAV_SPACER_CLASS}`}>
         <div className="mb-8 flex justify-end">
           <button
             onClick={() => navigate("/home", { replace: true })}

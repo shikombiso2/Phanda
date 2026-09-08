@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AppHeader } from "../../components/AppHeader";
+import { AppNav, BOTTOM_NAV_SPACER_CLASS } from "../../components/AppNav";
 import { api } from "../../lib/api";
 import { ApiError } from "../../lib/apiError";
 import { useAuthStore } from "../../store/authStore";
@@ -43,8 +43,8 @@ export function ProfileWizard() {
 
   return (
     <div className="min-h-screen bg-paper">
-      <AppHeader />
-      <main className="mx-auto max-w-md px-5 py-12 sm:px-8">
+      <AppNav />
+      <main className={`mx-auto max-w-md px-5 py-12 sm:px-8 ${BOTTOM_NAV_SPACER_CLASS}`}>
         <ProfileQuestionnaire
           values={answers}
           onChange={setAnswers}

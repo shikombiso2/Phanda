@@ -58,6 +58,17 @@ body {
   outline-offset: 2px;
 }
 
+/* Hides the scrollbar on the horizontal opportunity carousel while keeping
+   it scrollable -- a visible scrollbar on a card carousel reads as a
+   layout accident on this kind of touch-first mobile screen. */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

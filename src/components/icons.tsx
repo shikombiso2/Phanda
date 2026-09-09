@@ -105,6 +105,20 @@ export function UserIcon({ className = "h-5 w-5" }: IconProps) {
   );
 }
 
+export function BellIcon({ className = "h-5 w-5" }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M6 10.5c0-3.3 2.7-6 6-6s6 2.7 6 6v3.3l1.5 2.7h-15l1.5-2.7z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <path d="M9.5 18.5a2.5 2.5 0 0 0 5 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function SpinnerIcon({ className = "h-5 w-5" }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={`${className} animate-spin`} aria-hidden="true">

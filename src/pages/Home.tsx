@@ -1,18 +1,19 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { AppNav, BOTTOM_NAV_SPACER_CLASS } from "../components/AppNav";
 import { Button } from "../components/Button";
 import { ProgressState } from "../components/ProgressState";
-import { DiggingSearchIcon, SpinnerIcon } from "../components/icons";
+import { BellIcon, DiggingSearchIcon } from "../components/icons";
 import { api } from "../lib/api";
 import { ApiError } from "../lib/apiError";
 import { buildQueryString } from "../lib/queryString";
 import { useAuthStore } from "../store/authStore";
-import { initials } from "../lib/initials";
-import type { MatchedListing, Page, ProfileOut, RoadmapOut } from "../types/api";
+import { firstName, initials } from "../lib/initials";
+import type { ListingType, MatchedListing, Page, ProfileOut } from "../types/api";
 
 const MATCHES_SAMPLE_SIZE = 10;
 const ROW_COUNT = 3;
+const SKILLS_TARGET = 5;
 
 interface OnboardingIssueState {
   onboardingIssue?: "profile" | "cv" | "both";
@@ -24,15 +25,45 @@ const ISSUE_MESSAGES: Record<"profile" | "cv" | "both", string> = {
   both: "Your account is ready, but we couldn't save your profile or your CV. You can finish both from your Profile tab.",
 };
 
-/** The single most useful thing to add next, in a fixed priority order --
- * not every empty field at once, which would just be a wall of text. */
-function nextProfileGap(profile: ProfileOut): string | null {
-  if (!profile.location) return "your location";
-  if (profile.skills.length === 0) return "your skills";
-  if (!profile.education_level) return "your education level";
-  if (profile.industries.length === 0) return "industries you're interested in";
-  if (profile.desired_salary_min == null && profile.desired_salary_max == null) return "your desired salary";
-  return null;
+/** Ranked, specific next actions -- up to 3, not a wall of every empty
+ * field at once. Experience level is deliberately not included: the field
+ * always has a value ("none" is a real answer, "no experience yet", not an
+ * unset sentinel), so there's no reliable way to tell "the user left this
+ * at its default" from "the user told us they have no experience". */
+function nextProfileGaps(profile: ProfileOut): string[] {
+  const gaps: string[] = [];
+  if (!profile.location) gaps.push("Add your location");
+  if (profile.skills.length === 0) gaps.push("Add your skills to get matched");
+  else if (profile.skills.length < SKILLS_TARGET) {
+    const remaining = SKILLS_TARGET - profile.skills.length;
+    gaps.push(`Add ${remaining} more skill${remaining === 1 ? "" : "s"} to improve matches`);
+  }
+  if (!profile.education_level) gaps.push("Add your education level");
+  if (profile.industries.length === 0) gaps.push("Add industries you're interested in");
+  if (profile.desired_salary_min == null && profile.desired_salary_max == null) gaps.push("Add your desired salary");
+  return gaps.slice(0, 3);
+}
+
+const LISTING_TYPE_LABELS: Record<ListingType, string> = {
+  job: "Job",
+  internship: "Internship",
+  learnership: "Learnership",
+  apprenticeship: "Apprenticeship",
+  bursary: "Bursary",
+};
+
+/** Tag chips for an opportunity card -- only ever built from fields the
+ * listing actually carries. There's no explicit "remote" flag on a listing
+ * (open_to_remote lives on the *profile*, not the listing), so "Remote OK"
+ * is inferred the same way the matching engine already does it elsewhere
+ * (app/recommendations/features.py's location_compatibility): the listing's
+ * location text mentioning "remote". Full-time/part-time isn't included --
+ * that's a candidate preference (JobType), not a field listings are tagged
+ * with, so there's no honest way to show it here. */
+function listingTags(listing: MatchedListing): string[] {
+  const tags = [LISTING_TYPE_LABELS[listing.listing_type]];
+  if (listing.location?.toLowerCase().includes("remote")) tags.push("Remote OK");
+  return tags;
 }
 
 export function Home() {
@@ -82,7 +113,8 @@ export function Home() {
   // Walk the fetched batch for the first one that has something to show,
   // rather than assuming the single top-scored listing always does.
   const gapMatch = matches.find((listing) => listing.match.missing_skills.length > 0) ?? null;
-  const profileGap = isEmpty ? null : nextProfileGap(profile);
+  const profileGaps = isEmpty ? [] : nextProfileGaps(profile);
+  const name = firstName(profile.email);
 
   return (
     <div className="min-h-screen bg-paper">
@@ -123,15 +155,23 @@ export function Home() {
         </main>
       ) : (
         <main className={`mx-auto max-w-3xl px-5 py-6 sm:px-8 ${BOTTOM_NAV_SPACER_CLASS}`}>
-          <div className="flex items-center justify-between">
-            <h1 className="font-display text-2xl font-black tracking-tight text-ink">Home</h1>
-            <Link
-              to="/profile"
-              aria-label="Your profile"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-phanda-green/15 font-body text-sm font-bold text-phanda-green-dark"
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-phanda-green/15 font-body text-sm font-bold text-phanda-green-dark">
+                {initials(profile.email)}
+              </span>
+              <div>
+                <p className="font-body text-[15px] font-semibold text-ink">{name ? `Sawubona, ${name}` : "Sawubona"}</p>
+                <p className="font-body text-xs text-ink/60">Let's find your next move.</p>
+              </div>
+            </div>
+            <button
+              aria-label="Notifications"
+              title="Notifications are coming soon"
+              className="flex h-9 w-9 shrink-0 cursor-default items-center justify-center rounded-full bg-mist text-ink/60"
             >
-              {initials(profile.email)}
-            </Link>
+              <BellIcon className="h-4 w-4" />
+            </button>
           </div>
 
           <div className="mt-6 flex flex-col gap-5">
@@ -154,29 +194,31 @@ export function Home() {
             )}
 
             {!loadingMatches && !matchesError && opportunities.length > 0 && (
-              <Section title="Opportunities for you">
-                {opportunities.map((listing) => (
-                  <CompactMatchRow key={listing.id} listing={listing} />
-                ))}
-              </Section>
+              <OpportunityCarousel listings={opportunities} />
             )}
+
+            {(profileGaps.length > 0 || newest.length > 0) && <SectionDivider />}
+
+            {profileGaps.length > 0 && <ProfileNudgeCard completeness={profile.profile_completeness} gaps={profileGaps} />}
 
             {!loadingMatches && !matchesError && newest.length > 0 && (
               <>
-                <SectionDivider />
-                <Section title="New for you">
+                {profileGaps.length > 0 && <SectionDivider />}
+                <SectionHeader title="New opportunities" />
+                <div className="flex flex-col gap-2.5">
                   {newest.map((listing) => (
-                    <CompactMatchRow key={listing.id} listing={listing} />
+                    <NewListingRow key={listing.id} listing={listing} />
                   ))}
-                </Section>
+                </div>
               </>
             )}
 
-            {(profileGap || (gapMatch && !isEmpty)) && <SectionDivider />}
-
-            {profileGap && <ProfileNudgeCard completeness={profile.profile_completeness} gapLabel={profileGap} />}
-
-            {gapMatch && <CloseTheGapCard topMatch={gapMatch} />}
+            {gapMatch && (
+              <>
+                <SectionDivider />
+                <CloseTheGapSection topMatch={gapMatch} batch={matches} />
+              </>
+            )}
           </div>
         </main>
       )}
@@ -184,12 +226,16 @@ export function Home() {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function SectionHeader({ title, seeAllTo }: { title: string; seeAllTo?: string }) {
   return (
-    <section>
+    <div className="flex items-center justify-between">
       <h2 className="font-body text-sm font-semibold text-ink/70">{title}</h2>
-      <div className="mt-3 flex flex-col gap-2.5">{children}</div>
-    </section>
+      {seeAllTo && (
+        <Link to={seeAllTo} className="font-body text-xs font-semibold text-phanda-green-dark hover:underline">
+          See all
+        </Link>
+      )}
+    </div>
   );
 }
 
@@ -197,12 +243,56 @@ function SectionDivider() {
   return <hr className="border-t border-hairline" />;
 }
 
-function CompactMatchRow({ listing }: { listing: MatchedListing }) {
+function OpportunityCarousel({ listings }: { listings: MatchedListing[] }) {
+  return (
+    <section>
+      <SectionHeader title="Opportunities for you" seeAllTo="/find" />
+      <div className="scrollbar-hide -mx-5 mt-3 flex gap-2 overflow-x-auto px-5 pb-1 sm:-mx-8 sm:px-8">
+        {listings.map((listing) => (
+          <OpportunityCard key={listing.id} listing={listing} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function OpportunityCard({ listing }: { listing: MatchedListing }) {
+  const tags = listingTags(listing);
   return (
     <Link
       to={`/listings/${listing.id}`}
       state={{ match: listing.match }}
-      className="flex items-center justify-between gap-3 rounded-2xl border border-hairline px-4 py-3.5 transition-colors hover:border-ink/25"
+      className="flex w-[168px] shrink-0 flex-col rounded-2xl border border-hairline bg-mist p-3 transition-colors hover:border-ink/25"
+    >
+      <span className="mb-2 inline-block self-start rounded-full bg-phanda-green/15 px-2.5 py-1 font-body text-[11px] font-semibold text-phanda-green-dark">
+        {listing.match.score}% match
+      </span>
+      <p className="font-body text-[13px] font-semibold leading-snug text-ink">{listing.title}</p>
+      <p className="mt-1 truncate font-body text-[11px] text-ink/60">
+        {[listing.company, listing.location].filter(Boolean).join(" · ")}
+      </p>
+      {tags.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded-[6px] border border-hairline bg-paper px-1.5 py-0.5 font-body text-[10px] text-ink/60"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+    </Link>
+  );
+}
+
+function NewListingRow({ listing }: { listing: MatchedListing }) {
+  return (
+    <Link
+      to={`/listings/${listing.id}`}
+      state={{ match: listing.match }}
+      className="flex items-center justify-between gap-3 rounded-2xl bg-mist px-4 py-3.5 transition-colors hover:bg-hairline/40"
     >
       <div className="min-w-0">
         <p className="truncate font-body text-[15px] font-semibold text-ink">{listing.title}</p>
@@ -210,115 +300,93 @@ function CompactMatchRow({ listing }: { listing: MatchedListing }) {
           {[listing.company, listing.location].filter(Boolean).join(" · ")}
         </p>
       </div>
-      <span className="shrink-0 rounded-full bg-phanda-green/10 px-2.5 py-1 font-body text-xs font-bold text-phanda-green-dark">
-        {listing.match.score}%
+      <span className="shrink-0 rounded-full bg-phanda-green/15 px-2.5 py-1 font-body text-[11px] font-semibold text-phanda-green-dark">
+        New
       </span>
     </Link>
   );
 }
 
-function ProfileNudgeCard({ completeness, gapLabel }: { completeness: number; gapLabel: string }) {
+function ProfileNudgeCard({ completeness, gaps }: { completeness: number; gaps: string[] }) {
   return (
-    <div className="rounded-2xl border border-phanda-violet-border bg-phanda-violet-soft p-5">
-      <p className="font-body text-[15px] font-semibold text-ink">Your profile is {completeness}% complete</p>
-      <p className="mt-1 font-body text-sm text-ink/70">Add {gapLabel} to finish.</p>
+    <div className="rounded-2xl bg-mist p-4">
+      <div className="flex items-center justify-between">
+        <p className="font-body text-[13px] font-semibold text-ink">Your profile is {completeness}% complete</p>
+        <span className="font-body text-xs font-semibold text-ink">{completeness}%</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-hairline">
+        <div className="h-full rounded-full bg-phanda-green" style={{ width: `${completeness}%` }} />
+      </div>
+      <ul className="mt-3 list-disc pl-4 font-body text-xs leading-relaxed text-ink/70">
+        {gaps.map((gap) => (
+          <li key={gap}>{gap}</li>
+        ))}
+      </ul>
       <Link
         to="/onboarding/profile"
-        className="mt-3 inline-block font-body text-sm font-semibold text-phanda-violet hover:underline"
+        className="mt-1 inline-block font-body text-xs font-semibold text-phanda-green-dark hover:underline"
       >
-        Complete profile
+        Complete your profile &rarr;
       </Link>
     </div>
   );
 }
 
-type GapState =
-  | { phase: "idle" }
-  | { phase: "loading" }
-  | { phase: "done"; roadmap: RoadmapOut }
-  | { phase: "blocked"; message: string };
+function normalizeSkill(value: string): string {
+  return value.trim().toLowerCase();
+}
 
 /**
- * Deliberately NOT auto-fetched on mount, even though the spec describes a
- * loading state as if the card fetches eagerly. The free tier for this
- * endpoint is 3 roadmap calls per month, shared across every skill
- * (confirmed live against the backend) -- auto-firing one every time this
- * card renders would exhaust a user's whole month's quota in three visits
- * to their own home screen. Gating it behind one explicit tap costs
- * nothing (the resources aren't time-sensitive) and means the quota is
- * spent only when the user actually wants it.
+ * No API call happens here at all -- the quota-protected roadmap fetch
+ * (3 calls/month, shared across every skill, confirmed live against the
+ * backend) lives entirely in SkillGapDetail, gated per-skill behind its own
+ * "Get resources" button. This card only ever counts and links; the tap
+ * that actually spends quota happens one screen later, and only for the
+ * one skill the user picks there.
  */
-function CloseTheGapCard({ topMatch }: { topMatch: MatchedListing }) {
-  const [state, setState] = useState<GapState>({ phase: "idle" });
+function CloseTheGapSection({ topMatch, batch }: { topMatch: MatchedListing; batch: MatchedListing[] }) {
   const missingSkills = topMatch.match.missing_skills;
   const primarySkill = missingSkills[0];
+  const chipSkills = missingSkills.slice(0, 5);
 
-  async function reveal() {
-    setState({ phase: "loading" });
-    try {
-      const roadmap = await api.post<RoadmapOut>(`/skill-gap/roadmap/${encodeURIComponent(primarySkill)}`);
-      setState({ phase: "done", roadmap });
-    } catch (err) {
-      setState({
-        phase: "blocked",
-        message: err instanceof ApiError ? err.displayMessage : "Couldn't load resources right now.",
-      });
-    }
-  }
+  // How many of the *already-fetched* matches this skill would help with --
+  // not a new API call, just a count over the same batch already on screen.
+  const rolesAffected = batch.filter((listing) =>
+    (listing.required_skills ?? []).some((skill) => normalizeSkill(skill) === normalizeSkill(primarySkill)),
+  ).length;
 
   return (
-    <div className="rounded-2xl border border-phanda-violet-border bg-phanda-violet-soft p-5">
-      <p className="font-body text-[15px] font-semibold text-ink">Close the gap</p>
-      <p className="mt-1 font-body text-sm text-ink/70">
-        {missingSkills.length === 1
-          ? `${topMatch.title} wants ${primarySkill}, which isn't on your profile yet.`
-          : `${topMatch.title} wants ${missingSkills.length} skills you don't have yet, including ${primarySkill}.`}
-      </p>
+    <section>
+      <h2 className="mb-3 font-body text-sm font-semibold text-ink/70">Close the gap</h2>
+      <div className="rounded-2xl border border-phanda-violet-border bg-phanda-violet-soft p-4">
+        <p className="font-body text-[13px] font-semibold leading-relaxed text-phanda-violet">
+          {rolesAffected > 1
+            ? `You're missing skills that appear in ${rolesAffected} of your target roles`
+            : `${primarySkill} shows up in listings that match what you're looking for`}
+        </p>
+        <p className="mt-1 font-body text-xs leading-relaxed text-ink/60">
+          Adding these could unlock significantly more matches for you.
+        </p>
 
-      {state.phase === "idle" && (
-        <Button variant="secondary" className="mt-3" onClick={reveal}>
-          Show me how
-        </Button>
-      )}
-
-      {state.phase === "loading" && (
-        <div className="mt-3 flex items-center gap-2 font-body text-sm text-ink/60">
-          <SpinnerIcon className="h-4 w-4 text-phanda-violet" />
-          Finding resources...
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {chipSkills.map((skill) => (
+            <span
+              key={skill}
+              className="rounded-full border border-hairline bg-paper px-2.5 py-1 font-body text-xs text-ink"
+            >
+              {skill}
+            </span>
+          ))}
         </div>
-      )}
 
-      {state.phase === "blocked" && <p className="mt-3 font-body text-sm text-signal">{state.message}</p>}
-
-      {state.phase === "done" && (
-        <>
-          {state.roadmap.resources.length === 0 ? (
-            <p className="mt-3 font-body text-sm text-ink/60">We don't have study resources for {primarySkill} yet.</p>
-          ) : (
-            <ul className="mt-3 flex flex-col gap-1.5">
-              {state.roadmap.resources.slice(0, 2).map((resource) => (
-                <li key={resource.url}>
-                  <a
-                    href={resource.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-body text-sm font-medium text-phanda-violet hover:underline"
-                  >
-                    {resource.title}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
-          <Link
-            to="/skill-gap"
-            state={{ listingTitle: topMatch.title, missingSkills }}
-            className="mt-3 inline-block font-body text-sm font-semibold text-phanda-violet hover:underline"
-          >
-            See more
-          </Link>
-        </>
-      )}
-    </div>
+        <Link
+          to="/skill-gap"
+          state={{ listingTitle: topMatch.title, missingSkills }}
+          className="mt-3 inline-block font-body text-xs font-semibold text-phanda-violet hover:underline"
+        >
+          Explore free learnerships &rarr;
+        </Link>
+      </div>
+    </section>
   );
 }

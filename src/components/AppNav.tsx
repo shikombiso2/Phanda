@@ -3,10 +3,14 @@ import { Mark } from "./Mark";
 import { useAuthStore } from "../store/authStore";
 import { HomeIcon, SearchIcon, HeartIcon, TrackIcon, UserIcon } from "./icons";
 
-const TABS = [
+/** badge is the unread count to show on that tab -- 0/undefined renders no
+ * badge at all. Applications has no real source for this yet (no backend
+ * notification/status-change feed), so it's wired up but hardcoded to 0
+ * rather than a guessed number, ready for a real count later. */
+const TABS: { to: string; label: string; icon: typeof HomeIcon; end?: boolean; badge?: number }[] = [
   { to: "/home", label: "Home", icon: HomeIcon, end: true },
   { to: "/find", label: "Find", icon: SearchIcon },
-  { to: "/track", label: "Applied", icon: TrackIcon },
+  { to: "/track", label: "Applications", icon: TrackIcon, badge: 0 },
   { to: "/saved", label: "Saved", icon: HeartIcon },
   { to: "/profile", label: "Profile", icon: UserIcon },
 ];
@@ -68,7 +72,17 @@ export function AppNav() {
           >
             {({ isActive }) => (
               <>
-                <tab.icon className="h-5 w-5" filled={isActive} />
+                <span className="relative">
+                  <tab.icon className="h-5 w-5" filled={isActive} />
+                  {!!tab.badge && (
+                    <span
+                      aria-label={`${tab.badge} unread`}
+                      className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-signal text-[9px] font-bold text-white"
+                    >
+                      {tab.badge > 9 ? "9+" : tab.badge}
+                    </span>
+                  )}
+                </span>
                 {tab.label}
               </>
             )}

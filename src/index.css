@@ -31,7 +31,8 @@
      not a listing. Flat tint, no gradient, same hairline-bordered surface
      language as everything else. */
   --color-phanda-violet: #6b5fa8;
-  --color-phanda-violet-soft: #f1eefa;
+  --color-phanda-violet-soft: #e6def8;
+  --color-phanda-violet-border: #cabbe9;
 
   --font-display: "Archivo Variable", "Archivo", sans-serif;
   --font-body: "Work Sans Variable", "Work Sans", sans-serif;

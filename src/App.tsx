@@ -4,6 +4,7 @@ import { Landing } from "./pages/Landing";
 import { SignupWizard } from "./features/onboarding/SignupWizard";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
+import { ProfileView } from "./pages/ProfileView";
 import { Find } from "./pages/Find";
 import { ListingDetail } from "./pages/ListingDetail";
 import { Saved } from "./pages/Saved";
@@ -72,6 +73,14 @@ export default function App() {
           element={
             <RequireAuth>
               <SkillGapDetail />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <RequireAuth>
+              <ProfileView />
             </RequireAuth>
           }
         />

@@ -8,6 +8,7 @@ import { api } from "../lib/api";
 import { ApiError } from "../lib/apiError";
 import { buildQueryString } from "../lib/queryString";
 import { useAuthStore } from "../store/authStore";
+import { initials } from "../lib/initials";
 import type { MatchedListing, Page, ProfileOut, RoadmapOut } from "../types/api";
 
 const MATCHES_SAMPLE_SIZE = 10;
@@ -22,13 +23,6 @@ const ISSUE_MESSAGES: Record<"profile" | "cv" | "both", string> = {
   cv: "Your account is ready, but we couldn't process your CV. You can upload it again from your Profile tab.",
   both: "Your account is ready, but we couldn't save your profile or your CV. You can finish both from your Profile tab.",
 };
-
-function initials(email: string): string {
-  const name = email.split("@")[0] ?? "";
-  const parts = name.split(/[._-]+/).filter(Boolean);
-  const pair = parts.length >= 2 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2);
-  return (pair || "?").toUpperCase();
-}
 
 /** The single most useful thing to add next, in a fixed priority order --
  * not every empty field at once, which would just be a wall of text. */
@@ -74,8 +68,20 @@ export function Home() {
 
   // Already sorted by match score, descending, by the backend.
   const opportunities = matches.slice(0, ROW_COUNT);
-  const newest = [...matches].sort((a, b) => (b.posted_at ?? "").localeCompare(a.posted_at ?? "")).slice(0, ROW_COUNT);
-  const topMatch = matches[0] ?? null;
+  const shownIds = new Set(opportunities.map((listing) => listing.id));
+  // Distinct from Opportunities for you, not just re-sorted -- the same 10-item
+  // batch re-sorted by recency used to reproduce the top rows verbatim.
+  const newest = matches
+    .filter((listing) => !shownIds.has(listing.id))
+    .sort((a, b) => (b.posted_at ?? "").localeCompare(a.posted_at ?? ""))
+    .slice(0, ROW_COUNT);
+  // "Close the gap" needs a listing with an actual skill gap to talk about --
+  // many top-ranked matches carry no tagged required_skills at all (the
+  // listing's overall score comes from location/experience/job-type instead),
+  // so missing_skills is genuinely empty for match #1 more often than not.
+  // Walk the fetched batch for the first one that has something to show,
+  // rather than assuming the single top-scored listing always does.
+  const gapMatch = matches.find((listing) => listing.match.missing_skills.length > 0) ?? null;
   const profileGap = isEmpty ? null : nextProfileGap(profile);
 
   return (
@@ -120,7 +126,7 @@ export function Home() {
           <div className="flex items-center justify-between">
             <h1 className="font-display text-2xl font-black tracking-tight text-ink">Home</h1>
             <Link
-              to="/onboarding/profile"
+              to="/profile"
               aria-label="Your profile"
               className="flex h-10 w-10 items-center justify-center rounded-full bg-phanda-green/15 font-body text-sm font-bold text-phanda-green-dark"
             >
@@ -156,16 +162,21 @@ export function Home() {
             )}
 
             {!loadingMatches && !matchesError && newest.length > 0 && (
-              <Section title="New for you">
-                {newest.map((listing) => (
-                  <CompactMatchRow key={listing.id} listing={listing} />
-                ))}
-              </Section>
+              <>
+                <SectionDivider />
+                <Section title="New for you">
+                  {newest.map((listing) => (
+                    <CompactMatchRow key={listing.id} listing={listing} />
+                  ))}
+                </Section>
+              </>
             )}
+
+            {(profileGap || (gapMatch && !isEmpty)) && <SectionDivider />}
 
             {profileGap && <ProfileNudgeCard completeness={profile.profile_completeness} gapLabel={profileGap} />}
 
-            {topMatch && topMatch.match.missing_skills.length > 0 && <CloseTheGapCard topMatch={topMatch} />}
+            {gapMatch && <CloseTheGapCard topMatch={gapMatch} />}
           </div>
         </main>
       )}
@@ -180,6 +191,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <div className="mt-3 flex flex-col gap-2.5">{children}</div>
     </section>
   );
+}
+
+function SectionDivider() {
+  return <hr className="border-t border-hairline" />;
 }
 
 function CompactMatchRow({ listing }: { listing: MatchedListing }) {
@@ -204,7 +219,7 @@ function CompactMatchRow({ listing }: { listing: MatchedListing }) {
 
 function ProfileNudgeCard({ completeness, gapLabel }: { completeness: number; gapLabel: string }) {
   return (
-    <div className="rounded-2xl border border-hairline bg-phanda-violet-soft p-5">
+    <div className="rounded-2xl border border-phanda-violet-border bg-phanda-violet-soft p-5">
       <p className="font-body text-[15px] font-semibold text-ink">Your profile is {completeness}% complete</p>
       <p className="mt-1 font-body text-sm text-ink/70">Add {gapLabel} to finish.</p>
       <Link
@@ -252,7 +267,7 @@ function CloseTheGapCard({ topMatch }: { topMatch: MatchedListing }) {
   }
 
   return (
-    <div className="rounded-2xl border border-hairline bg-phanda-violet-soft p-5">
+    <div className="rounded-2xl border border-phanda-violet-border bg-phanda-violet-soft p-5">
       <p className="font-body text-[15px] font-semibold text-ink">Close the gap</p>
       <p className="mt-1 font-body text-sm text-ink/70">
         {missingSkills.length === 1

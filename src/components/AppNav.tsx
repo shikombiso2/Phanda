@@ -8,7 +8,7 @@ const TABS = [
   { to: "/find", label: "Find", icon: SearchIcon },
   { to: "/track", label: "Applied", icon: TrackIcon },
   { to: "/saved", label: "Saved", icon: HeartIcon },
-  { to: "/onboarding/profile", label: "Profile", icon: UserIcon },
+  { to: "/profile", label: "Profile", icon: UserIcon },
 ];
 
 /**

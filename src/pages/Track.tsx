@@ -98,7 +98,7 @@ export function Track() {
               <p className="max-w-xs font-body text-[15px] text-ink/65">
                 Once you apply to a listing, you'll be able to follow its progress here.
               </p>
-              <Link to="/home">
+              <Link to="/find">
                 <Button variant="secondary">Find opportunities</Button>
               </Link>
             </div>

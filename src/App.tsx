@@ -3,10 +3,12 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Landing } from "./pages/Landing";
 import { SignupWizard } from "./features/onboarding/SignupWizard";
 import { Login } from "./pages/Login";
+import { Home } from "./pages/Home";
 import { Find } from "./pages/Find";
 import { ListingDetail } from "./pages/ListingDetail";
 import { Saved } from "./pages/Saved";
 import { Track } from "./pages/Track";
+import { SkillGapDetail } from "./pages/SkillGapDetail";
 import { ProfileWizard } from "./features/onboarding/ProfileWizard";
 import { CvUpload } from "./features/onboarding/CvUpload";
 import { RequireAuth } from "./components/RequireAuth";
@@ -27,6 +29,14 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route
           path="/home"
+          element={
+            <RequireAuth>
+              <Home />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/find"
           element={
             <RequireAuth>
               <Find />
@@ -54,6 +64,14 @@ export default function App() {
           element={
             <RequireAuth>
               <Track />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/skill-gap"
+          element={
+            <RequireAuth>
+              <SkillGapDetail />
             </RequireAuth>
           }
         />

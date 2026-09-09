@@ -176,3 +176,24 @@ export interface ApplicationOut {
   applied_via: AppliedVia;
   applied_at: string;
 }
+
+export interface SkillGapOut {
+  missing_skills: string[];
+}
+
+export interface SkillResource {
+  title: string;
+  url: string;
+}
+
+export interface RoadmapOut {
+  skill: string;
+  /** Empty, not absent, when the skill has no curated resources yet --
+   * app/skill_gap/resources.py only covers a handful of skills today. Not
+   * an error case; render it as "nothing here yet", not a failure. */
+  resources: SkillResource[];
+  /** "free_quota" | "boost_token" on success. A blocked call (quota used
+   * up) doesn't reach this type at all -- it's a 402 ApiError instead,
+   * with code "watch_ad_available" or "paywall_required". */
+  access_reason: string;
+}

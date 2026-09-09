@@ -87,7 +87,7 @@ export function ListingDetail() {
           <p className="font-body text-[15px] font-semibold text-ink">
             {loadError ?? "This listing isn't available anymore."}
           </p>
-          <Button variant="secondary" className="mt-4" onClick={() => navigate("/home")}>
+          <Button variant="secondary" className="mt-4" onClick={() => navigate("/find")}>
             Back to Find
           </Button>
         </main>

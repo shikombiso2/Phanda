@@ -1,12 +1,13 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { Mark } from "./Mark";
 import { useAuthStore } from "../store/authStore";
-import { SearchIcon, HeartIcon, TrackIcon, UserIcon } from "./icons";
+import { HomeIcon, SearchIcon, HeartIcon, TrackIcon, UserIcon } from "./icons";
 
 const TABS = [
-  { to: "/home", label: "Find", icon: SearchIcon, end: true },
+  { to: "/home", label: "Home", icon: HomeIcon, end: true },
+  { to: "/find", label: "Find", icon: SearchIcon },
+  { to: "/track", label: "Applied", icon: TrackIcon },
   { to: "/saved", label: "Saved", icon: HeartIcon },
-  { to: "/track", label: "Track", icon: TrackIcon },
   { to: "/onboarding/profile", label: "Profile", icon: UserIcon },
 ];
 
@@ -15,7 +16,7 @@ const TABS = [
  * screen: a top bar everywhere (brand + sign out), and on mobile a second,
  * fixed bottom tab bar -- the standard place a thumb expects primary
  * navigation on a phone-sized screen, which is this product's primary
- * device. Desktop gets the same four destinations as inline top-bar links
+ * device. Desktop gets the same five destinations as inline top-bar links
  * instead of duplicating a bottom bar nobody's thumb needs there.
  */
 export function AppNav() {

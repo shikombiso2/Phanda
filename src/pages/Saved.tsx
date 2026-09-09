@@ -88,7 +88,7 @@ export function Saved() {
               <p className="max-w-xs font-body text-[15px] text-ink/65">
                 Tap the heart on any listing to keep it here for later.
               </p>
-              <Link to="/home">
+              <Link to="/find">
                 <Button variant="secondary">Find listings</Button>
               </Link>
             </div>

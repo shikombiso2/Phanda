@@ -24,6 +24,15 @@
   --color-signal: #c4432e;
   --color-signal-soft: #fbeae7;
 
+  /* A third, deliberately different register from green (action/match) and
+     gold (brand warmth): muted violet marks the two Home cards that are
+     personal growth nudges rather than opportunities or actions -- "build
+     your profile" and "close the gap" are about the user's own progress,
+     not a listing. Flat tint, no gradient, same hairline-bordered surface
+     language as everything else. */
+  --color-phanda-violet: #6b5fa8;
+  --color-phanda-violet-soft: #f1eefa;
+
   --font-display: "Archivo Variable", "Archivo", sans-serif;
   --font-body: "Work Sans Variable", "Work Sans", sans-serif;
 }

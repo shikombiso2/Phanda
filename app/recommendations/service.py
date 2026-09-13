@@ -11,16 +11,18 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.models import Application, Listing, Profile, SavedOpportunity, TailoredDocument
+from app.core.models import Application, CvVersion, CvVersionStatus, Listing, Profile, SavedOpportunity, TailoredDocument
 from app.recommendations import features
 from app.recommendations.schemas import CompatibilityFactor, MatchExplanation
 from app.recommendations.scoring import FACTOR_WEIGHTS, combine, score_from_probability
 
 
-def build_match_explanation(profile: Profile, listing: Listing, engaged_skills: set[str]) -> MatchExplanation:
+def build_match_explanation(profile: Profile, listing: Listing, engaged_skills: set[str], cv_skills: list[str]) -> MatchExplanation:
     factors: list[CompatibilityFactor] = []
 
-    skill_probability, matched, missing = features.skill_compatibility(profile.skills or [], listing.required_skills or [])
+    skill_probability, matched, missing = features.skill_compatibility(
+        profile.skills or [], cv_skills, listing.required_skills or []
+    )
     factors.append(_factor("skills", "Skill match", skill_probability, detail=_skill_detail(matched, missing)))
 
     experience_probability, listing_seniority = features.experience_compatibility(
@@ -64,8 +66,22 @@ def build_match_explanation(profile: Profile, listing: Listing, engaged_skills: 
 
 def score_listings_for_profile(db: Session, profile: Profile, listings: list[Listing]) -> list[tuple[Listing, MatchExplanation]]:
     engaged_skills = _engaged_skills(db, profile.user_id)
-    scored = [(listing, build_match_explanation(profile, listing, engaged_skills)) for listing in listings]
+    cv_skills = active_cv_skills(db, profile)
+    scored = [(listing, build_match_explanation(profile, listing, engaged_skills, cv_skills)) for listing in listings]
     return sorted(scored, key=lambda row: row[1].score, reverse=True)
+
+
+def active_cv_skills(db: Session, profile: Profile) -> list[str]:
+    """The active CV's extracted_skills, computed once at CV-ready time (see
+    app/cv_tailoring/tasks.py) and just read back here -- never recomputed
+    inside this request path. Empty for a profile with no CV, or whose CV
+    hasn't finished processing yet -- both are ordinary states, not errors."""
+    if not profile.active_cv_version_id:
+        return []
+    cv_version = db.get(CvVersion, profile.active_cv_version_id)
+    if not cv_version or cv_version.status != CvVersionStatus.ready:
+        return []
+    return cv_version.extracted_skills or []
 
 
 def _engaged_skills(db: Session, user_id) -> set[str]:

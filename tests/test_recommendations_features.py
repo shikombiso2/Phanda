@@ -11,19 +11,19 @@ class SkillCompatibilityTests(unittest.TestCase):
         # under 1.0 (2/2 -> 0.75): appropriate humility about a small sample,
         # not a bug. It climbs toward 1.0 as the skill count grows (see the
         # next test).
-        probability, matched, missing = features.skill_compatibility(["excel", "communication"], ["excel", "communication"])
+        probability, matched, missing = features.skill_compatibility(["excel", "communication"], [], ["excel", "communication"])
         self.assertGreater(probability, 0.7)
         self.assertEqual(matched, ["communication", "excel"])
         self.assertEqual(missing, [])
 
     def test_full_overlap_approaches_one_as_required_skill_count_grows(self):
         skills = ["excel", "communication", "admin", "sales", "typing", "filing", "reception", "invoicing"]
-        probability, _, missing = features.skill_compatibility(skills, skills)
+        probability, _, missing = features.skill_compatibility(skills, [], skills)
         self.assertGreater(probability, 0.85)
         self.assertEqual(missing, [])
 
     def test_no_overlap_scores_low_but_not_zero(self):
-        probability, matched, missing = features.skill_compatibility(["forklift"], ["excel"])
+        probability, matched, missing = features.skill_compatibility(["forklift"], [], ["excel"])
         self.assertGreater(probability, 0.0)
         self.assertLess(probability, 0.4)
         self.assertEqual(missing, ["excel"])
@@ -32,19 +32,41 @@ class SkillCompatibilityTests(unittest.TestCase):
         """The old implementation returned score=0 for a listing with no
         tagged skills at all -- unfairly burying every under-tagged listing.
         Neutral (no evidence) is the honest answer."""
-        probability, matched, missing = features.skill_compatibility(["excel"], [])
+        probability, matched, missing = features.skill_compatibility(["excel"], [], [])
         self.assertEqual(probability, 0.5)
         self.assertEqual(matched, [])
         self.assertEqual(missing, [])
 
     def test_matching_is_case_and_whitespace_insensitive(self):
-        probability, matched, _ = features.skill_compatibility([" Excel "], ["EXCEL"])
+        probability, matched, _ = features.skill_compatibility([" Excel "], [], ["EXCEL"])
         self.assertEqual(matched, ["excel"])
 
     def test_one_missing_skill_out_of_several_still_scores_reasonably(self):
-        probability, _, missing = features.skill_compatibility(["excel", "communication", "admin"], ["excel", "communication", "admin", "sales"])
+        probability, _, missing = features.skill_compatibility(
+            ["excel", "communication", "admin"], [], ["excel", "communication", "admin", "sales"]
+        )
         self.assertEqual(missing, ["sales"])
         self.assertGreater(probability, 0.6)
+
+    def test_profile_and_cv_skills_are_unioned(self):
+        # The exact case from the design brief: profile has "excel", the CV
+        # has "python", the listing wants both -- both must show as matched,
+        # not just whichever source happened to be checked first.
+        probability, matched, missing = features.skill_compatibility(["excel"], ["python"], ["excel", "python"])
+        self.assertEqual(matched, ["excel", "python"])
+        self.assertEqual(missing, [])
+
+    def test_cv_skill_alone_can_satisfy_a_requirement_profile_doesnt_state(self):
+        _, matched, missing = features.skill_compatibility([], ["python"], ["python"])
+        self.assertEqual(matched, ["python"])
+        self.assertEqual(missing, [])
+
+    def test_overlapping_profile_and_cv_skills_are_not_double_counted(self):
+        probability, matched, _ = features.skill_compatibility(["excel"], ["excel"], ["excel"])
+        self.assertEqual(matched, ["excel"])
+        # (1+1)/(1+2) -- the same as a single source stating "excel" once,
+        # not inflated by the skill appearing in both sources.
+        self.assertAlmostEqual(probability, 2 / 3)
 
 
 class ExperienceCompatibilityTests(unittest.TestCase):

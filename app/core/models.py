@@ -200,6 +200,20 @@ class CvVersion(Base):
     sha256: Mapped[str] = mapped_column(String(64))
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extracted_text_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    extracted_skills: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    """Skills tagged from this CV's own extracted text via the same
+    extract_required_skills() vocabulary used for listings (see
+    app/listings/ingestion/skills.py -- confirmed a pure text-in/skills-out
+    function with no listing-specific assumption). Computed once, in
+    extract_cv_version, at the moment the CV becomes ready -- never
+    recomputed inside a request path. Deliberately kept separate from
+    Profile.skills rather than merged into it: PUT /profile is a full
+    replace (see app/profiles/router.py), so writing CV-derived skills into
+    that column would make them vulnerable to silent deletion by an
+    unrelated profile edit, and would erase the distinction between "the
+    user said this" and "we inferred this from a document". Read alongside
+    profile.skills as the second input to
+    app.recommendations.features.skill_compatibility()."""
     candidate_facts_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     failure_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

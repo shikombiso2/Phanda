@@ -13,6 +13,7 @@ from app.core.observability import emit_event
 from app.core.storage import get_bytes, put_bytes
 from app.cv_tailoring.extraction import CvExtractionError, extract_cv
 from app.cv_tailoring.service import TransientTailoringError, fail_stale_documents, process_tailored_document
+from app.listings.ingestion.skills import extract_required_skills
 
 
 @celery_app.task(name="app.cv_tailoring.tasks.extract_cv_version")
@@ -39,6 +40,10 @@ def extract_cv_version(cv_version_id: str) -> None:
             version.status = CvVersionStatus.ready
             version.page_count = extracted.page_count
             version.extracted_text_key = text_key
+            # Computed once, here, at readiness -- never inside a request
+            # path (see app.recommendations.service.score_listings_for_profile,
+            # which only ever reads this column back).
+            version.extracted_skills = extract_required_skills(extracted.text)
             version.ready_at = utcnow()
             version.processing_lease_expires_at = None
             profile = db.get(Profile, version.user_id)

@@ -29,8 +29,20 @@ def normalize_skill(value: str) -> str:
     return value.strip().lower()
 
 
-def skill_compatibility(profile_skills: list[str], required_skills: list[str]) -> tuple[float, list[str], list[str]]:
+def skill_compatibility(
+    profile_skills: list[str], cv_skills: list[str], required_skills: list[str]
+) -> tuple[float, list[str], list[str]]:
     """Returns (probability, matched, missing).
+
+    profile_skills and cv_skills are two independent sources -- the user's
+    own typed-in skills, and whatever extract_required_skills() found in
+    their active CV's text (see CvVersion.extracted_skills) -- unioned here
+    into one "owned" set. Never merged into Profile.skills itself: that
+    column stays exactly what the user explicitly stated, since PUT
+    /profile fully replaces it on every save (app/profiles/router.py) and a
+    machine-written skill sitting in that column would be silently deleted
+    by an unrelated edit. matched/missing below report the unioned result
+    only -- callers don't need to know which source a match came from.
 
     Uses add-one (Laplace) smoothing on the matched/required ratio --
     (matched + 1) / (required + 2) -- which is the Bayesian posterior mean of
@@ -42,7 +54,7 @@ def skill_compatibility(profile_skills: list[str], required_skills: list[str]) -
     bottom of the feed regardless of actual fit.
     """
     required = sorted({normalize_skill(skill) for skill in required_skills if skill.strip()})
-    owned = {normalize_skill(skill) for skill in profile_skills if skill.strip()}
+    owned = {normalize_skill(skill) for skill in [*profile_skills, *cv_skills] if skill.strip()}
     if not required:
         return NEUTRAL, [], []
     matched = [skill for skill in required if skill in owned]

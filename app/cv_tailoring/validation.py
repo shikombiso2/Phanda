@@ -13,19 +13,35 @@ SKILL_SECTION = "skills"
 
 
 def validate_analysis(plan: AnalysisPlan, source_text: str) -> list[ValidationIssue]:
+    """Ground every candidate fact's source_spans in source_text by search,
+    not by trusting Gemini's character offsets.
+
+    LLMs cannot count characters reliably: offsets drift further from correct
+    the more text precedes them, even when the quoted excerpt itself is a
+    verbatim, unfabricated match. Locating each excerpt with a substring
+    search (after whitespace/case normalisation) and overwriting start/end
+    with the true offsets keeps the fabrication check -- an excerpt not
+    present anywhere in the source is still rejected -- while dropping the
+    offset arithmetic the model cannot be relied on to produce.
+    """
     issues: list[ValidationIssue] = []
     seen: set[str] = set()
+    normalized_source = " ".join(source_text.split()).lower()
     for fact in plan.candidate_facts.facts:
         if fact.id in seen:
             issues.append(ValidationIssue(code="duplicate_fact_id", detail=f"Duplicate fact id {fact.id}"))
         seen.add(fact.id)
         for span in fact.source_spans:
-            if span.end > len(source_text) or span.start >= span.end:
-                issues.append(ValidationIssue(code="invalid_source_span", detail=f"Invalid span for {fact.id}"))
+            normalized_excerpt = " ".join(span.excerpt.split()).lower()
+            if not normalized_excerpt:
+                issues.append(ValidationIssue(code="invalid_source_span", detail=f"Empty excerpt for {fact.id}"))
                 continue
-            actual = " ".join(source_text[span.start : span.end].split())
-            if " ".join(span.excerpt.split()) != actual:
+            position = normalized_source.find(normalized_excerpt)
+            if position == -1:
                 issues.append(ValidationIssue(code="source_excerpt_mismatch", detail=f"Source excerpt mismatch for {fact.id}"))
+                continue
+            span.start = position
+            span.end = position + len(normalized_excerpt)
     return issues
 
 

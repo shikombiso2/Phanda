@@ -73,7 +73,14 @@ class Settings(BaseSettings):
     ai_model: str = "gemini-3.6-flash"
     gemini_api_key: str | None = None
     gemini_api_base_url: str = "https://generativelanguage.googleapis.com"
-    ai_timeout_seconds: int = 60
+    ai_timeout_seconds: int = 120
+    gemini_thinking_level: str = "low"
+    """Passed as generationConfig.thinkingConfig.thinkingLevel on every
+    generateContent call. "low" was chosen after live measurement showed the
+    model's default spent roughly 3x more tokens on invisible extended
+    thinking than on the actual JSON output. "minimal" is a bigger swing
+    (skips most reasoning) and needs its own quality validation before use --
+    not adopted here."""
 
     email_provider: str = "sendgrid"
     sendgrid_api_key: str | None = None

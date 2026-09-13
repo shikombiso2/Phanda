@@ -71,7 +71,12 @@ def process_tailored_document_task(self, document_id: str) -> None:
         with SessionLocal() as db:
             process_tailored_document(db, document_id)
     except TransientTailoringError as exc:
-        raise self.retry(exc=exc, countdown=2 ** self.request.retries)
+        # retry_after_seconds is only ever set for provider_rate_limited (see
+        # gemini.py): a 429 needs to wait out the provider's own limit
+        # window, not the exponential backoff used for a generic transient
+        # failure (503/timeout/network), which retries much sooner.
+        countdown = exc.retry_after_seconds if exc.retry_after_seconds is not None else 2 ** self.request.retries
+        raise self.retry(exc=exc, countdown=countdown)
 
 
 @celery_app.task(name="app.cv_tailoring.tasks.reconcile_stale_tailoring")

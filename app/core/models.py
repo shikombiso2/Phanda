@@ -303,6 +303,13 @@ class TailoredDocument(Base):
     output_format: Mapped[str] = mapped_column(String(20), default="pdf")
     listing_snapshot_json: Mapped[dict] = mapped_column(JSONB)
     profile_snapshot_json: Mapped[dict] = mapped_column(JSONB)
+    analysis_plan_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    """The validated AnalysisPlan (candidate_facts + job_requirements +
+    strategy) from this document's first successful analyze_and_plan call.
+    Lets a retry of this exact document skip straight to generate() instead
+    of re-running analysis from scratch -- see app/cv_tailoring/service.py.
+    Cleared by app/monetization/gate.py whenever this document row is reused
+    for a genuinely new request (the listing snapshot may have changed)."""
     provider_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     prompt_version: Mapped[str] = mapped_column(String(40), default="v1")

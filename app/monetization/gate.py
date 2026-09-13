@@ -229,6 +229,14 @@ def reserve_tailoring_request(
         document.attempt_count = 0
         document.correction_attempted = False
         document.processing_lease_expires_at = document.ready_at = None
+        # The listing snapshot above may differ from what the prior analysis
+        # plan was grounded in (the listing could have been re-ingested with
+        # new content since) -- a stale plan getting reused here would ship
+        # a CV tailored against requirements the listing no longer states.
+        # service.py only ever reuses a plan it finds already attached to
+        # the document, so clearing it here is what forces a fresh
+        # analyze_and_plan for this genuinely new request.
+        document.analysis_plan_json = None
     else:
         document = TailoredDocument(
             user_id=user_id, listing_id=listing.id, cv_version_id=cv_version.id,

@@ -21,9 +21,10 @@ VALID_CV = {
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, payload=None):
+    def __init__(self, status_code=200, payload=None, headers=None):
         self.status_code = status_code
         self._payload = payload or {}
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -68,13 +69,35 @@ class GeminiProviderContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ProviderError, "malformed_provider_output"):
             self._generate(response)
 
-    def test_timeout_and_rate_limit_are_retryable(self):
+    def test_timeout_and_server_errors_are_retryable(self):
         with self.assertRaises(ProviderError) as timeout:
             self._generate(error=httpx.TimeoutException("timeout"))
         self.assertTrue(timeout.exception.retryable)
-        with self.assertRaises(ProviderError) as rate_limit:
+        self.assertIsNone(timeout.exception.retry_after_seconds)
+        with self.assertRaises(ProviderError) as unavailable:
+            self._generate(FakeResponse(status_code=503))
+        self.assertEqual(unavailable.exception.code, "provider_unavailable")
+        self.assertTrue(unavailable.exception.retryable)
+        self.assertIsNone(unavailable.exception.retry_after_seconds)
+
+    def test_rate_limit_is_retryable_with_a_backoff_not_an_immediate_retry(self):
+        # No Retry-After header: falls back to the 30s minimum, not the
+        # generic 503 path's immediate retry.
+        with self.assertRaises(ProviderError) as no_header:
             self._generate(FakeResponse(status_code=429))
-        self.assertTrue(rate_limit.exception.retryable)
+        self.assertEqual(no_header.exception.code, "provider_rate_limited")
+        self.assertTrue(no_header.exception.retryable)
+        self.assertEqual(no_header.exception.retry_after_seconds, 30.0)
+
+        # A Retry-After longer than 30s is honoured rather than clamped down.
+        with self.assertRaises(ProviderError) as with_header:
+            self._generate(FakeResponse(status_code=429, headers={"Retry-After": "45"}))
+        self.assertEqual(with_header.exception.retry_after_seconds, 45.0)
+
+        # A Retry-After shorter than 30s is still floored at 30s.
+        with self.assertRaises(ProviderError) as short_header:
+            self._generate(FakeResponse(status_code=429, headers={"Retry-After": "5"}))
+        self.assertEqual(short_header.exception.retry_after_seconds, 30.0)
 
     def test_provider_refusal_is_not_retryable(self):
         with self.assertRaises(ProviderError) as refusal:

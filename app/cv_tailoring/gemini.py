@@ -28,6 +28,7 @@ class GeminiProvider:
         self.model_name = settings.ai_model
         self.api_base_url = settings.gemini_api_base_url.rstrip("/")
         self.timeout = settings.ai_timeout_seconds
+        self.thinking_level = settings.gemini_thinking_level
 
     async def analyze_and_plan(self, candidate_text: str, job: dict) -> AnalysisPlan:
         return await self._generate(
@@ -79,6 +80,7 @@ class GeminiProvider:
                 "responseMimeType": "application/json",
                 "responseJsonSchema": schema.model_json_schema(),
                 "temperature": 0.1,
+                "thinkingConfig": {"thinkingLevel": self.thinking_level},
             },
         }
         try:
@@ -92,7 +94,17 @@ class GeminiProvider:
             emit_event("provider_error", provider=self.name, code="provider_network_error")
             raise ProviderError("provider_network_error", retryable=True) from exc
         emit_event("provider_latency", provider=self.name, latency_ms=round((time.monotonic() - started) * 1000))
-        if response.status_code in {429, 500, 502, 503, 504}:
+        if response.status_code == 429:
+            # Rate limiting is not the same failure as a flaky/overloaded
+            # server: retrying immediately (the 503 path's behaviour) just
+            # spends another call hitting the same limit. Honour the
+            # provider's own Retry-After when it gives one; otherwise wait at
+            # least 30s -- long enough to actually clear a per-minute quota
+            # window rather than re-knocking within the same one.
+            wait_seconds = max(_parse_retry_after(response.headers.get("Retry-After")) or 0.0, 30.0)
+            emit_event("provider_error", provider=self.name, code="provider_rate_limited", http_status=429, retry_after_seconds=wait_seconds)
+            raise ProviderError("provider_rate_limited", retryable=True, retry_after_seconds=wait_seconds)
+        if response.status_code in {500, 502, 503, 504}:
             emit_event("provider_error", provider=self.name, code="provider_unavailable", http_status=response.status_code)
             raise ProviderError("provider_unavailable", retryable=True)
         if response.status_code >= 400:
@@ -105,6 +117,18 @@ class GeminiProvider:
         except Exception as exc:
             emit_event("provider_error", provider=self.name, code="malformed_provider_output")
             raise ProviderError("malformed_provider_output") from exc
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Only the delta-seconds form is handled; an HTTP-date Retry-After is
+    ignored rather than mis-parsed as seconds (same convention already used
+    for Himalayas ingestion's 429 handling)."""
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def get_tailoring_provider() -> GeminiProvider:

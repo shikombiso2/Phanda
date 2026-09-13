@@ -13,12 +13,15 @@ from app.core.storage import get_bytes, put_bytes
 from app.cv_tailoring.gemini import get_tailoring_provider
 from app.cv_tailoring.provider import ProviderError
 from app.cv_tailoring.renderer import render_cover_letter_pdf, render_cv_pdf
+from app.cv_tailoring.schemas import AnalysisPlan
 from app.cv_tailoring.validation import validate_analysis, validate_tailored_cv
 from app.monetization.gate import consume_reservation, release_reservation
 
 
 class TransientTailoringError(RuntimeError):
-    pass
+    def __init__(self, code: str, retry_after_seconds: float | None = None):
+        super().__init__(code)
+        self.retry_after_seconds = retry_after_seconds
 
 
 def process_tailored_document(db: Session, document_id) -> None:
@@ -39,15 +42,31 @@ def process_tailored_document(db: Session, document_id) -> None:
         cv_version = db.get(CvVersion, document.cv_version_id)
         if not cv_version or not cv_version.extracted_text_key or cv_version.status.value != "ready":
             raise ProviderError("cv_not_ready")
-        candidate_text = get_bytes(cv_version.extracted_text_key).decode("utf-8")
         provider = get_tailoring_provider()
-        plan = asyncio.run(provider.analyze_and_plan(candidate_text, document.listing_snapshot_json))
-        analysis_issues = validate_analysis(plan, candidate_text)
-        if analysis_issues:
-            emit_event("validation_failed", document_id=document_id, stage="analysis", issue_count=len(analysis_issues))
-            raise ProviderError("invalid_candidate_analysis")
-        cv_version.candidate_facts_json = plan.candidate_facts.model_dump(mode="json")
-        db.commit()
+
+        if document.analysis_plan_json:
+            # A retry of this exact document (same listing + CV pairing) that
+            # already produced a validated plan on a prior attempt -- most
+            # often a Celery-level retry after generate/revise hit a
+            # transient provider error downstream of analysis. Re-running
+            # analyze_and_plan here would resend the full CV text and job
+            # description for a result we already have and already
+            # validated; skip straight to generate. gate.py clears this
+            # field whenever a document is reused for a genuinely new
+            # request (the listing snapshot may have changed since), so its
+            # presence here specifically means "safe to reuse".
+            plan = AnalysisPlan.model_validate(document.analysis_plan_json)
+            emit_event("tailoring_plan_reused", document_id=document_id, attempt=document.attempt_count)
+        else:
+            candidate_text = get_bytes(cv_version.extracted_text_key).decode("utf-8")
+            plan = asyncio.run(provider.analyze_and_plan(candidate_text, document.listing_snapshot_json))
+            analysis_issues = validate_analysis(plan, candidate_text)
+            if analysis_issues:
+                emit_event("validation_failed", document_id=document_id, stage="analysis", issue_count=len(analysis_issues))
+                raise ProviderError("invalid_candidate_analysis")
+            cv_version.candidate_facts_json = plan.candidate_facts.model_dump(mode="json")
+            document.analysis_plan_json = plan.model_dump(mode="json")
+            db.commit()
 
         _transition(db, document.id, TailoredDocumentStatus.validating)
         draft = asyncio.run(provider.generate(plan.candidate_facts, plan.job_requirements, plan.strategy))
@@ -94,7 +113,7 @@ def process_tailored_document(db: Session, document_id) -> None:
     except ProviderError as exc:
         _handle_failure(db, document_id, exc.code, exc.retryable)
         if exc.retryable and _attempts_remaining(db, document_id):
-            raise TransientTailoringError(exc.code) from exc
+            raise TransientTailoringError(exc.code, exc.retry_after_seconds) from exc
     except Exception:
         _handle_failure(db, document_id, "generation_failed", retryable=False)
 

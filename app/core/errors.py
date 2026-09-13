@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.monetization.gate import AccessDecision
 
@@ -80,4 +81,25 @@ def install_error_handlers(app: FastAPI) -> None:
                 "message": "One or more fields are invalid.",
                 "details": {"errors": jsonable_encoder(exc.errors())},
             },
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _normalize_starlette_http_exception(_request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        # Routing-level errors (no matching route, wrong method) are raised by
+        # Starlette itself as plain starlette.exceptions.HTTPException, not the
+        # fastapi.HTTPException the handler above catches -- without this,
+        # they skip the envelope entirely and come back as {"detail": "..."}.
+        code = _STATUS_FALLBACK_CODES.get(exc.status_code, "error")
+        message = str(exc.detail) if exc.detail else code.replace("_", " ")
+        return JSONResponse(status_code=exc.status_code, content={"code": code, "message": message, "details": {}}, headers=exc.headers or {})
+
+    @app.exception_handler(Exception)
+    async def _normalize_unhandled_exception(_request: Request, _exc: Exception) -> JSONResponse:
+        # Anything not raised as an HTTPException reaching here is a bug, not
+        # an expected failure -- the message must not leak exception internals
+        # to the client, and Android needs JSON here just as much as anywhere
+        # else, not the bare-text 500 FastAPI returns by default.
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"code": "internal_error", "message": "An unexpected error occurred.", "details": {}},
         )

@@ -16,7 +16,11 @@ from app.monetization.gate import BOOST_CURRENCY, PREMIUM_ENTITLEMENT, TAILORING
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 PURCHASE_ACTIVE_EVENTS = {"INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE"}
-PURCHASE_INACTIVE_EVENTS = {"CANCELLATION", "EXPIRATION", "BILLING_ISSUE"}
+# BILLING_ISSUE is deliberately not in either set: RevenueCat sends it while a
+# renewal payment is retrying during the subscriber's grace period, when they
+# are still entitled -- revoking on it would strip premium from a paying user
+# mid-grace, before RevenueCat itself has given up and sent EXPIRATION.
+PURCHASE_INACTIVE_EVENTS = {"CANCELLATION", "EXPIRATION", "REFUND"}
 VIRTUAL_CURRENCY_EVENTS = {"VIRTUAL_CURRENCY_TRANSACTION", "VIRTUAL_CURRENCY_BALANCE_CHANGED"}
 
 

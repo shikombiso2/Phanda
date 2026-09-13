@@ -12,7 +12,7 @@ from app.core.models import CvVersion, Profile, User, utcnow
 from app.core.security import get_current_user
 from app.core.storage import put_bytes, read_upload
 from app.cv_tailoring.extraction import CvExtractionError, validate_upload
-from app.profiles.schemas import CvUploadOut, ProfileOut, ProfileUpdate
+from app.profiles.schemas import CvUploadOut, CvVersionOut, ProfileOut, ProfileUpdate
 from app.profiles.service import compute_profile_completeness
 
 router = APIRouter(prefix="/profile", tags=["profile"])
@@ -27,13 +27,22 @@ def get_or_create_profile(user: User, db: Session) -> Profile:
     return profile
 
 
+def _with_email(profile: Profile, user: User) -> Profile:
+    # Profile carries no email column of its own -- it belongs to User -- but
+    # ProfileOut includes it for the client's convenience. Not a mapped
+    # column, so this is a transient, per-response attribute only; it is
+    # never written back on commit.
+    profile.email = user.email
+    return profile
+
+
 @router.get("", response_model=ProfileOut)
 def get_profile(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Profile:
     profile = get_or_create_profile(user, db)
     profile.profile_completeness = compute_profile_completeness(profile)
     db.commit()
     db.refresh(profile)
-    return profile
+    return _with_email(profile, user)
 
 
 @router.put("", response_model=ProfileOut)
@@ -43,13 +52,12 @@ def update_profile(
     db: Session = Depends(get_db),
 ) -> Profile:
     profile = get_or_create_profile(user, db)
-    user.email = payload.email
-    for field, value in payload.model_dump(exclude={"email"}).items():
+    for field, value in payload.model_dump().items():
         setattr(profile, field, value)
     profile.profile_completeness = compute_profile_completeness(profile)
     db.commit()
     db.refresh(profile)
-    return profile
+    return _with_email(profile, user)
 
 
 @router.post("/cv-upload", response_model=CvUploadOut)
@@ -109,3 +117,15 @@ async def upload_cv(
 
     extract_cv_version.delay(str(cv_version.id))
     return CvUploadOut(cv_version_id=cv_version.id, status=cv_version.status.value, profile_completeness=profile.profile_completeness)
+
+
+@router.get("/cv-versions/{cv_version_id}", response_model=CvVersionOut)
+def get_cv_version(
+    cv_version_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CvVersion:
+    cv_version = db.scalar(select(CvVersion).where(CvVersion.id == cv_version_id, CvVersion.user_id == user.id))
+    if not cv_version:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CV version not found")
+    return cv_version

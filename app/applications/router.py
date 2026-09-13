@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.applications.schemas import ApplicationCreate, ApplicationOut, ApplyOut
+from app.applications.schemas import ApplicationCreate, ApplicationOut, ApplicationStatusUpdate, ApplyOut
 from app.core.db import get_db
 from app.core.models import Application, ApplicationStatus, ApplicationSubmissionStatus, AppliedVia, ApplyMethod, CvVersion, CvVersionStatus, Listing, Profile, TailoredDocument, TailoredDocumentStatus, User
 from app.core.observability import emit_event
@@ -77,6 +77,26 @@ def apply_to_listing(
         emit_event("email_queued", application_id=application.id, source="application_created")
         send_application_email_task.delay(str(application.id))
     return _apply_out(application, listing)
+
+
+@router.patch("/{application_id}", response_model=ApplicationOut)
+def update_application_status(
+    application_id: uuid.UUID,
+    payload: ApplicationStatusUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Application:
+    application = db.scalar(
+        select(Application)
+        .options(selectinload(Application.listing))
+        .where(Application.id == application_id, Application.user_id == user.id)
+    )
+    if not application:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+    application.status = payload.status
+    db.commit()
+    db.refresh(application)
+    return application
 
 
 @router.get("", response_model=Page[ApplicationOut])

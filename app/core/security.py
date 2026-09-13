@@ -23,7 +23,7 @@ from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.models import User
 
-bearer = HTTPBearer()
+bearer = HTTPBearer(auto_error=False)
 _password_hasher = PasswordHasher()
 
 # A short denylist of passwords common enough that allowing them defeats the
@@ -99,9 +99,17 @@ def hash_refresh_token(secret: str) -> str:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: Session = Depends(get_db),
 ) -> User:
+    if credentials is None:
+        # HTTPBearer(auto_error=False) returns None instead of raising here --
+        # for both a missing header and one using the wrong scheme -- so this
+        # is the only place that decides the status code. It must be 401, not
+        # HTTPBearer's default 403: an Android client's auth interceptor
+        # refreshes and retries on 401, and a missing/expired token must take
+        # that same path as an invalid one, not a different, unhandled one.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     settings = get_settings()
     try:
         payload = jwt.decode(credentials.credentials, settings.jwt_secret, algorithms=[settings.jwt_algorithm])

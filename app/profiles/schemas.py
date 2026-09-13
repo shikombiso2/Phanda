@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -18,11 +19,12 @@ class ProfileBase(BaseModel):
 
 
 class ProfileUpdate(ProfileBase):
-    email: str | None = None
+    pass
 
 
 class ProfileOut(ProfileBase):
     user_id: uuid.UUID
+    email: str
     active_cv_version_id: uuid.UUID | None
     profile_completeness: int
 
@@ -33,3 +35,12 @@ class CvUploadOut(BaseModel):
     cv_version_id: uuid.UUID
     status: str
     profile_completeness: int
+
+
+class CvVersionOut(BaseModel):
+    id: uuid.UUID
+    status: str
+    failure_code: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

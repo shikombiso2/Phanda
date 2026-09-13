@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import unittest
 import uuid
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import redis
@@ -23,6 +24,7 @@ from app.auth.google import VerifiedGoogleIdentity
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.models import Profile, RefreshToken, User, UserAuthIdentity
+from app.core.security import hash_refresh_token
 from tests.postgres_harness import PostgresHarness
 
 
@@ -128,6 +130,56 @@ class AuthFlowIntegrationTests(unittest.TestCase):
         self.assertEqual(wrong_password.json()["code"], "invalid_credentials")
         self.assertEqual(wrong_password.json(), unknown_email.json())
 
+    def _age_revocation_past_grace(self, refresh_token: str) -> None:
+        """Backdate a token's revoked_at so it falls outside the grace window."""
+        settings = get_settings()
+        with self.Session() as db:
+            token = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(refresh_token)))
+            token.revoked_at = datetime.now(timezone.utc) - timedelta(seconds=settings.refresh_reuse_grace_seconds + 5)
+            db.commit()
+
+    def test_concurrent_refresh_inside_grace_window_does_not_kill_the_session(self):
+        """Two in-flight requests refreshing with the same token -- what a real
+        Android client does when parallel calls 401 together -- must both
+        succeed and must not revoke the user's other sessions."""
+        email = self._unique_email()
+        register = self.client.post("/auth/register", json={"email": email, "password": "Correct-Horse-1", "confirm_password": "Correct-Horse-1"})
+        shared_refresh = register.json()["refresh_token"]
+        other_session = self.client.post("/auth/login", json={"email": email, "password": "Correct-Horse-1"})
+        other_session_refresh = other_session.json()["refresh_token"]
+
+        first = self.client.post("/auth/token/refresh", json={"refresh_token": shared_refresh})
+        second = self.client.post("/auth/token/refresh", json={"refresh_token": shared_refresh})
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200, "a racing second refresh inside the grace window must not be treated as theft")
+        self.assertNotEqual(first.json()["refresh_token"], second.json()["refresh_token"])
+
+        # The unrelated session on another device must be untouched, and both
+        # tokens handed out above must themselves still rotate normally.
+        self.assertEqual(self.client.post("/auth/token/refresh", json={"refresh_token": other_session_refresh}).status_code, 200)
+        self.assertEqual(self.client.post("/auth/token/refresh", json={"refresh_token": second.json()["refresh_token"]}).status_code, 200)
+
+    def test_reuse_after_the_grace_window_still_revokes_every_session(self):
+        """The grace window must not blunt real theft detection: the same reuse,
+        once the window has passed, still kills the whole user's sessions."""
+        email = self._unique_email()
+        register = self.client.post("/auth/register", json={"email": email, "password": "Correct-Horse-1", "confirm_password": "Correct-Horse-1"})
+        stolen_refresh = register.json()["refresh_token"]
+        other_session = self.client.post("/auth/login", json={"email": email, "password": "Correct-Horse-1"})
+        other_session_refresh = other_session.json()["refresh_token"]
+
+        rotated = self.client.post("/auth/token/refresh", json={"refresh_token": stolen_refresh})
+        self.assertEqual(rotated.status_code, 200)
+        self._age_revocation_past_grace(stolen_refresh)
+
+        reuse = self.client.post("/auth/token/refresh", json={"refresh_token": stolen_refresh})
+
+        self.assertEqual(reuse.status_code, 401)
+        self.assertEqual(reuse.json()["code"], "invalid_refresh_token")
+        self.assertEqual(self.client.post("/auth/token/refresh", json={"refresh_token": rotated.json()["refresh_token"]}).status_code, 401)
+        self.assertEqual(self.client.post("/auth/token/refresh", json={"refresh_token": other_session_refresh}).status_code, 401)
+
     def test_refresh_rotates_and_the_old_token_stops_working(self):
         email = self._unique_email()
         register = self.client.post("/auth/register", json={"email": email, "password": "Correct-Horse-1", "confirm_password": "Correct-Horse-1"})
@@ -137,6 +189,13 @@ class AuthFlowIntegrationTests(unittest.TestCase):
         self.assertEqual(first_refresh.status_code, 200)
         new_refresh_token = first_refresh.json()["refresh_token"]
         self.assertNotEqual(new_refresh_token, old_refresh)
+
+        # Push the reuse outside the concurrent-refresh grace window. Before
+        # that window existed this test's reuse was immediate; now an immediate
+        # second presentation is a benign racing client by design, so the
+        # precondition this test always meant -- "this reuse is not a race" --
+        # has to be stated explicitly rather than assumed from timing.
+        self._age_revocation_past_grace(old_refresh)
 
         reuse_attempt = self.client.post("/auth/token/refresh", json={"refresh_token": old_refresh})
         self.assertEqual(reuse_attempt.status_code, 401)

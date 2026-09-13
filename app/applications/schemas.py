@@ -11,6 +11,10 @@ class ApplicationCreate(BaseModel):
     tailored_document_id: uuid.UUID | None = None
 
 
+class ApplicationStatusUpdate(BaseModel):
+    status: ApplicationStatus
+
+
 class ApplyOut(BaseModel):
     id: uuid.UUID
     listing_id: uuid.UUID

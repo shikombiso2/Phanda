@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -17,6 +17,7 @@ router = APIRouter(prefix="/listings", tags=["listings"])
 
 @router.get("", response_model=Page[ListingSummaryOut])
 def list_listings(
+    q: str | None = Query(default=None),
     listing_type: ListingType | None = Query(default=None, alias="type"),
     location: str | None = None,
     remote: bool | None = None,
@@ -24,6 +25,8 @@ def list_listings(
     db: Session = Depends(get_db),
 ) -> Page:
     query = select(Listing).where(Listing.is_active.is_(True))
+    if q:
+        query = query.where(or_(Listing.title.ilike(f"%{q}%"), Listing.description.ilike(f"%{q}%")))
     if listing_type:
         query = query.where(Listing.listing_type == listing_type)
     if location:

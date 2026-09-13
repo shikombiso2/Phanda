@@ -231,6 +231,14 @@ class Listing(Base):
     free text."""
     salary_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     salary_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    salary_period: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    """The period salary_min/salary_max are quoted per, as the source reported
+    it (e.g. "annual", "hourly"). Stored unconverted: rendering 22/hour as an
+    annual figure is worse than showing the source's own units."""
+    salary_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    """ISO currency of salary_min/salary_max as the source reported it. Not
+    converted to ZAR -- no rate is available at ingestion time, and a stale
+    rate baked into a stored integer is indistinguishable from a real one."""
     description: Mapped[str] = mapped_column(Text)
     required_skills: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     apply_method: Mapped[ApplyMethod] = mapped_column(Enum(ApplyMethod))
@@ -242,6 +250,12 @@ class Listing(Base):
     scheduled task deactivates any listing not seen for
     Settings.listing_stale_after_days -- it disappeared from the source,
     which most often means it was filled or withdrawn."""
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """Source-stated end of the posting, where the source provides one. This
+    is layered on top of last_seen_at staleness, not a replacement for it:
+    staleness infers disappearance, this is the source saying so outright,
+    and it is accurate immediately rather than after the staleness window.
+    NULL for sources that publish no expiry."""
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 

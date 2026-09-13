@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import setup_logging
 
 from app.core.config import get_settings
@@ -28,13 +29,31 @@ celery_app.conf.update(
     task_track_started=True,
 )
 celery_app.conf.beat_schedule = {
-    "ingest-adzuna-every-4-hours": {
+    "ingest-adzuna-daily": {
         "task": "app.listings.ingestion.tasks.ingest_adzuna",
+        "schedule": 24 * 60 * 60,
+    },
+    "ingest-himalayas-every-4-hours": {
+        "task": "app.listings.ingestion.tasks.ingest_himalayas",
         "schedule": 4 * 60 * 60,
+    },
+    # Twice weekly, not daily like Adzuna: this source is scraped (no API,
+    # no quota to justify tighter polling), and the ONGOING task's 8-day
+    # lookback already covers a missed/delayed run either side of the gap.
+    # 03:00 UTC -- off-peak for both the site and this worker.
+    "ingest-vacancyupdate-mon-thu": {
+        "task": "app.listings.ingestion.tasks.ingest_vacancyupdate",
+        "schedule": crontab(day_of_week="mon,thu", hour=3, minute=0),
     },
     "deactivate-stale-listings-daily": {
         "task": "app.listings.ingestion.tasks.deactivate_stale_listings",
         "schedule": 24 * 60 * 60,
+    },
+    # Hourly rather than daily: an expiry date is exact, so there is no
+    # reason to keep serving a listing for up to a day after it lapses.
+    "deactivate-expired-listings-hourly": {
+        "task": "app.listings.ingestion.tasks.deactivate_expired_listings",
+        "schedule": 60 * 60,
     },
     "reconcile-stale-tailoring-every-5-minutes": {
         "task": "app.cv_tailoring.tasks.reconcile_stale_tailoring",

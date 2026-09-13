@@ -26,17 +26,45 @@ def upsert_listings(db: Session, normalized: list[NormalizedListing]) -> int:
         listing.category = row.category
         listing.salary_min = row.salary_min
         listing.salary_max = row.salary_max
+        listing.salary_period = row.salary_period
+        listing.salary_currency = row.salary_currency
         listing.description = row.description
         listing.required_skills = row.required_skills
         listing.apply_method = row.apply_method
         listing.apply_target = row.apply_target
         listing.posted_at = row.posted_at
+        listing.expires_at = row.expires_at
         listing.ingested_at = now
         listing.last_seen_at = now
-        listing.is_active = True
+        # A listing that arrives already past its source-stated expiry is
+        # never activated in the first place, rather than going live until
+        # the next expiry sweep runs.
+        listing.is_active = row.expires_at is None or row.expires_at > now
         seen += 1
     db.commit()
     return seen
+
+
+def deactivate_expired_listings(db: Session) -> int:
+    """Deactivate listings past the expiry their source stated.
+
+    Layered on top of deactivate_stale_listings, not a replacement for it:
+    staleness catches listings that quietly stop appearing in pulls (the only
+    signal Adzuna gives), while this catches the ones whose source published
+    an end date up front, and catches them on the date itself instead of
+    listing_stale_after_days later. Listings with no expires_at are untouched
+    here and continue to rely on staleness alone.
+    """
+    result = db.execute(
+        update(Listing)
+        .where(Listing.is_active.is_(True), Listing.expires_at.is_not(None), Listing.expires_at <= utcnow())
+        .values(is_active=False)
+    )
+    db.commit()
+    deactivated = result.rowcount or 0
+    if deactivated:
+        emit_event("listings_expired", count=deactivated)
+    return deactivated
 
 
 def deactivate_stale_listings(db: Session, source: str | None = None) -> int:

@@ -31,7 +31,10 @@ class CeleryConfigurationTests(unittest.TestCase):
             scheduled_tasks,
             {
                 "app.listings.ingestion.tasks.ingest_adzuna",
+                "app.listings.ingestion.tasks.ingest_himalayas",
+                "app.listings.ingestion.tasks.ingest_vacancyupdate",
                 "app.listings.ingestion.tasks.deactivate_stale_listings",
+                "app.listings.ingestion.tasks.deactivate_expired_listings",
                 "app.cv_tailoring.tasks.reconcile_stale_tailoring",
                 "app.cv_tailoring.tasks.reconcile_stale_cv_extractions",
             },

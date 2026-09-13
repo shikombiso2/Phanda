@@ -23,7 +23,13 @@ def _apply_out(application: Application, listing: Listing) -> ApplyOut:
         applied_via=application.applied_via,
         applied_at=application.applied_at,
         apply_method=listing.apply_method,
-        apply_target=listing.apply_target if listing.apply_method == ApplyMethod.ats_link else None,
+        # ats_link: the employer's own apply page, for the client to open.
+        # manual: informational only (an address, a reference, instructions
+        # to follow outside Phanda entirely) -- still shown, just never
+        # something the client treats as a clickable "apply" destination.
+        # email: null -- Phanda already sent it on the user's behalf, there
+        # is nothing left for the client to open.
+        apply_target=listing.apply_target if listing.apply_method != ApplyMethod.email else None,
     )
 
 
@@ -58,14 +64,31 @@ def apply_to_listing(
     existing = db.scalar(select(Application).where(Application.user_id == user.id, Application.listing_id == listing.id))
     if existing:
         return _apply_out(existing, listing)
-    applied_via = AppliedVia.phanda_email if listing.apply_method == ApplyMethod.email else AppliedVia.external_link
+
+    if listing.apply_method == ApplyMethod.email:
+        applied_via = AppliedVia.phanda_email
+        initial_status = ApplicationStatus.prepared
+        submission_status = ApplicationSubmissionStatus.email_queued
+    elif listing.apply_method == ApplyMethod.manual:
+        # No click-through happened (there is nothing to click through to),
+        # and Phanda sent nothing on the user's behalf -- prepared/
+        # not_started is the honest state, not external_started, which
+        # would claim a real external apply flow was launched.
+        applied_via = AppliedVia.external_link
+        initial_status = ApplicationStatus.prepared
+        submission_status = ApplicationSubmissionStatus.not_started
+    else:  # ats_link
+        applied_via = AppliedVia.external_link
+        initial_status = ApplicationStatus.external_started
+        submission_status = ApplicationSubmissionStatus.external_started
+
     application = Application(
         user_id=user.id,
         listing_id=listing.id,
         tailored_document_id=tailored_document_id,
         idempotency_key=idempotency_key,
-        status=ApplicationStatus.prepared if listing.apply_method == ApplyMethod.email else ApplicationStatus.external_started,
-        submission_status=ApplicationSubmissionStatus.email_queued if listing.apply_method == ApplyMethod.email else ApplicationSubmissionStatus.external_started,
+        status=initial_status,
+        submission_status=submission_status,
         applied_via=applied_via,
     )
     db.add(application)

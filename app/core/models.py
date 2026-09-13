@@ -38,6 +38,14 @@ class ListingType(str, enum.Enum):
 class ApplyMethod(str, enum.Enum):
     ats_link = "ats_link"
     email = "email"
+    manual = "manual"
+    """No automated submission path exists at all -- the user must complete
+    and submit the application themselves entirely outside Phanda (e.g. a
+    DPSA circular post requiring a printed/emailed Z83 form). Distinct from
+    ats_link, which still means "the user completes it on a real external
+    apply page Phanda can link to" -- manual means apply_target is
+    informational only (an address, a reference, a set of instructions),
+    not something the user clicks through to apply."""
 
 
 class ApplicationStatus(str, enum.Enum):
@@ -236,7 +244,12 @@ class Listing(Base):
     source_listing_id: Mapped[str] = mapped_column(String(255))
     title: Mapped[str] = mapped_column(String(255))
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """TEXT, not a length-capped VARCHAR: every other source's location is a
+    short place name, but a DPSA circular post can be advertised across many
+    districts at once, each with its own embedded reference number (a real
+    example ran past 2,000 characters) -- truncating would silently cut off
+    genuine districts a candidate could apply to."""
     listing_type: Mapped[ListingType] = mapped_column(Enum(ListingType), default=ListingType.job)
     category: Mapped[str | None] = mapped_column(String(120), nullable=True)
     """Source-provided industry/category label (e.g. Adzuna's category.label)
@@ -256,7 +269,11 @@ class Listing(Base):
     description: Mapped[str] = mapped_column(Text)
     required_skills: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     apply_method: Mapped[ApplyMethod] = mapped_column(Enum(ApplyMethod))
-    apply_target: Mapped[str] = mapped_column(String(1024))
+    apply_target: Mapped[str] = mapped_column(Text)
+    """A URL or email address for ats_link/email sources -- always short.
+    For a manual source (DPSA), this is the raw application instructions
+    text instead, which can run to several sentences -- TEXT rather than a
+    length-capped VARCHAR so that text is never silently truncated."""
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

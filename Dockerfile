@@ -16,6 +16,16 @@ WORKDIR /app
 # /ready correctly reported storage: false, until this was added.
 RUN useradd --create-home --uid 1000 phanda && chown phanda:phanda /app
 
+# poppler-utils' pdftotext -layout is a deliberate choice for the DPSA
+# circular parser (scripts/ingest_dpsa_pdf.py), not a general PDF-handling
+# dependency -- its column-position-preserving output is what that parser's
+# regexes were actually verified against across five real circulars. pypdf
+# (already a dependency, used for CV extraction) extracts plain reading-order
+# text with no such layout guarantee, which would risk silently breaking
+# those tuned patterns on DPSA's multi-column index/salary tables.
+RUN apt-get update && apt-get install --no-install-recommends -y poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 # psycopg[binary] and reportlab ship prebuilt wheels for this base image, so
 # no compiler toolchain is installed here on purpose -- keep the image small.
 COPY requirements.txt .

@@ -13,7 +13,8 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.models import (
-    ApplyMethod, CvVersion, CvVersionStatus, ExperienceLevel, FeatureUsage, JobType, Listing, ListingType,
+    Application, ApplicationStatus, ApplicationSubmissionStatus, ApplyMethod, CvVersion, CvVersionStatus,
+    ExperienceLevel, FeatureUsage, JobType, Listing, ListingType,
     Profile, ReservationSource, ReservationStatus, TailoredDocument, TailoredDocumentStatus,
     TailoringRequestReservation, User, Wallet, utcnow,
 )
@@ -319,7 +320,8 @@ class TailoringAuthorizationIntegrationTests(unittest.TestCase):
             profile_a.active_cv_version_id, profile_b.active_cv_version_id = self.cv_a.id, self.cv_b.id
             self.ats_listing = self._listing(ApplyMethod.ats_link)
             self.email_listing = self._listing(ApplyMethod.email)
-            db.add_all([self.ats_listing, self.email_listing])
+            self.manual_listing = self._listing(ApplyMethod.manual)
+            db.add_all([self.ats_listing, self.email_listing, self.manual_listing])
             db.flush()
             self.document_b = self._ready_document(self.user_b.id, self.ats_listing.id, self.cv_b.id)
             self.document_a = self._ready_document(self.user_a.id, self.ats_listing.id, self.cv_a.id)
@@ -331,7 +333,13 @@ class TailoringAuthorizationIntegrationTests(unittest.TestCase):
         return CvVersion(id=uuid.uuid4(), user_id=user_id, version_number=1, status=CvVersionStatus.ready, storage_key=f"test/{uuid.uuid4()}.txt", filename="cv.txt", content_type="text/plain", byte_size=100, sha256=uuid.uuid4().hex * 2, extracted_text_key="test/extracted.txt", ready_at=utcnow())
 
     def _listing(self, method):
-        return Listing(id=uuid.uuid4(), source="test", source_listing_id=str(uuid.uuid4()), title="Developer", description="Python role", required_skills=["Python"], apply_method=method, apply_target="employer@example.test" if method == ApplyMethod.email else "https://example.test/apply", listing_type=ListingType.job)
+        if method == ApplyMethod.email:
+            apply_target = "employer@example.test"
+        elif method == ApplyMethod.manual:
+            apply_target = "Submit a Z83 form to the address in the description."
+        else:
+            apply_target = "https://example.test/apply"
+        return Listing(id=uuid.uuid4(), source="test", source_listing_id=str(uuid.uuid4()), title="Developer", description="Python role", required_skills=["Python"], apply_method=method, apply_target=apply_target, listing_type=ListingType.job)
 
     def _ready_document(self, user_id, listing_id, cv_id):
         return TailoredDocument(id=uuid.uuid4(), user_id=user_id, listing_id=listing_id, cv_version_id=cv_id, status=TailoredDocumentStatus.ready, tailored_cv_key="test/cv.pdf", cover_letter_key="test/cover.pdf", output_format="pdf", listing_snapshot_json={}, profile_snapshot_json={}, prompt_version="v1", idempotency_key=str(uuid.uuid4()), input_fingerprint=uuid.uuid4().hex * 2, attempt_count=1, correction_attempted=False, ready_at=utcnow())
@@ -367,3 +375,21 @@ class TailoringAuthorizationIntegrationTests(unittest.TestCase):
         self.assertEqual(enqueue.call_count, 1)
         with self.Session() as db:
             self.assertEqual(db.get(Listing, self.email_listing.id).apply_target, "employer@example.test")
+
+    def test_manual_apply_method_prepares_with_no_email_and_shows_the_target(self):
+        # DPSA-style listing: no automated submission path exists at all.
+        # Must not claim a click-through happened (external_started) and
+        # must not send an email -- the user completes this themselves,
+        # entirely outside Phanda.
+        with patch("app.applications.tasks.send_application_email_task.delay") as enqueue:
+            response = self.client.post(f"/applications/{self.manual_listing.id}/apply", headers={"Idempotency-Key": "manual-apply-key"})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(enqueue.call_count, 0)
+        body = response.json()
+        self.assertEqual(body["apply_method"], "manual")
+        self.assertEqual(body["apply_target"], "Submit a Z83 form to the address in the description.")
+        self.assertEqual(body["status"], "prepared")
+        with self.Session() as db:
+            application = db.scalar(select(Application).where(Application.listing_id == self.manual_listing.id))
+            self.assertEqual(application.status, ApplicationStatus.prepared)
+            self.assertEqual(application.submission_status, ApplicationSubmissionStatus.not_started)

@@ -29,14 +29,21 @@ celery_app.conf.update(
     task_track_started=True,
 )
 celery_app.conf.beat_schedule = {
-    "ingest-adzuna-daily": {
-        "task": "app.listings.ingestion.tasks.ingest_adzuna",
-        "schedule": 24 * 60 * 60,
-    },
-    "ingest-himalayas-every-4-hours": {
-        "task": "app.listings.ingestion.tasks.ingest_himalayas",
-        "schedule": 4 * 60 * 60,
-    },
+    # Adzuna disabled (not removed) -- see the "Remove Adzuna as an active
+    # listing source" decision, same pattern as Himalayas below. The task
+    # and adapter still exist unchanged; re-enabling is just uncommenting
+    # this entry.
+    # "ingest-adzuna-daily": {
+    #     "task": "app.listings.ingestion.tasks.ingest_adzuna",
+    #     "schedule": 24 * 60 * 60,
+    # },
+    # Himalayas disabled (not removed) -- see the "Remove Himalayas as an
+    # active listing source" decision. The task and adapter still exist
+    # unchanged; re-enabling is just uncommenting this entry.
+    # "ingest-himalayas-every-4-hours": {
+    #     "task": "app.listings.ingestion.tasks.ingest_himalayas",
+    #     "schedule": 4 * 60 * 60,
+    # },
     # Twice weekly, not daily like Adzuna: this source is scraped (no API,
     # no quota to justify tighter polling), and the ONGOING task's 8-day
     # lookback already covers a missed/delayed run either side of the gap.

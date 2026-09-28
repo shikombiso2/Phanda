@@ -26,12 +26,14 @@ class CeleryConfigurationTests(unittest.TestCase):
             self.assertIn(task_name, celery_app.tasks)
 
     def test_beat_schedule_covers_ingestion_and_both_reconciliation_jobs(self):
+        # ingest_adzuna and ingest_himalayas are both deliberately absent:
+        # both sources are disabled (not removed -- their tasks and adapters
+        # still exist unchanged, see celery_app.py), so neither may be on
+        # the live schedule.
         scheduled_tasks = {entry["task"] for entry in celery_app.conf.beat_schedule.values()}
         self.assertEqual(
             scheduled_tasks,
             {
-                "app.listings.ingestion.tasks.ingest_adzuna",
-                "app.listings.ingestion.tasks.ingest_himalayas",
                 "app.listings.ingestion.tasks.ingest_vacancyupdate",
                 "app.listings.ingestion.tasks.deactivate_stale_listings",
                 "app.listings.ingestion.tasks.deactivate_expired_listings",
@@ -39,3 +41,5 @@ class CeleryConfigurationTests(unittest.TestCase):
                 "app.cv_tailoring.tasks.reconcile_stale_cv_extractions",
             },
         )
+        self.assertNotIn("app.listings.ingestion.tasks.ingest_adzuna", scheduled_tasks)
+        self.assertNotIn("app.listings.ingestion.tasks.ingest_himalayas", scheduled_tasks)

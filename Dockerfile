@@ -23,7 +23,23 @@ RUN useradd --create-home --uid 1000 phanda && chown phanda:phanda /app
 # (already a dependency, used for CV extraction) extracts plain reading-order
 # text with no such layout guarantee, which would risk silently breaking
 # those tuned patterns on DPSA's multi-column index/salary tables.
-RUN apt-get update && apt-get install --no-install-recommends -y poppler-utils \
+#
+# WeasyPrint (tailored CV / cover letter PDF rendering, app/cv_tailoring/
+# renderer.py) is pure Python but binds to Pango for text layout, so the
+# Pango runtime libraries have to be present -- it is not a
+# wheel-and-nothing-else dependency the way reportlab was.
+#
+# fonts-liberation matters more than it looks: this base image ships with NO
+# fonts at all, and WeasyPrint silently falls back to blank/box glyphs
+# rather than erroring when a family is missing. Liberation Sans is
+# metric-compatible with Arial, which is the safe choice for a CV that has
+# to survive both an employer's ATS re-extracting its text and being
+# printed/photocopied for a DPSA government application.
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        poppler-utils \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # psycopg[binary] and reportlab ship prebuilt wheels for this base image, so

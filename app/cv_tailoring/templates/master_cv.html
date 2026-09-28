@@ -1,0 +1,34 @@
+{#
+  The candidate's own untailored CV, attached to an emailed application when
+  they uploaded a DOCX/TXT rather than a PDF (app/applications/tasks.py).
+  Extraction has already flattened it to one whitespace-collapsed run of text
+  (app/cv_tailoring/extraction.py), so there is no structure left to lay out
+  here -- this exists to make that text attachment-safe, not to restyle it.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Master CV</title>
+  <style>
+    @page { size: A4; margin: 2.2cm; }
+    body {
+      font-family: "Liberation Sans", Arial, Helvetica, sans-serif;
+      font-size: 10pt;
+      line-height: 1.4;
+      color: #1a1a1a;
+      margin: 0;
+    }
+    h2 {
+      font-size: 13pt;
+      margin: 0 0 6pt 0;
+      padding-bottom: 2pt;
+      border-bottom: 0.5pt solid #999999;
+    }
+  </style>
+</head>
+<body>
+  <h2>Master CV</h2>
+  <p>{{ extracted_text }}</p>
+</body>
+</html>

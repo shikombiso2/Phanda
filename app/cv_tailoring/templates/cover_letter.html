@@ -1,0 +1,72 @@
+{#
+  Cover letter. Same typographic system as cv.html so the two documents read
+  as one application, but laid out as a letter: no bullets, no section rules,
+  just a letterhead, body paragraphs and a sign-off.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ name or "Cover Letter" }}{{ " - Cover Letter" if name else "" }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 2.2cm;
+    }
+
+    body {
+      font-family: "Liberation Sans", Arial, Helvetica, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #1a1a1a;
+      margin: 0;
+    }
+
+    .name {
+      font-size: 22pt;
+      font-weight: bold;
+      letter-spacing: 0.2pt;
+      margin: 0 0 2pt 0;
+    }
+
+    .contact {
+      font-size: 9.5pt;
+      color: #555555;
+      margin: 0;
+      padding-bottom: 6pt;
+      border-bottom: 0.5pt solid #999999;
+    }
+
+    .body {
+      margin-top: 16pt;
+    }
+
+    .body p {
+      margin: 0 0 9pt 0;
+    }
+
+    .closing {
+      margin-top: 14pt;
+      white-space: pre-line;
+    }
+  </style>
+</head>
+<body>
+  {% if name %}
+  <header>
+    <div class="name">{{ name }}</div>
+    {% if contact_line %}<div class="contact">{{ contact_line }}</div>{% endif %}
+  </header>
+  {% endif %}
+
+  <div class="body">
+    {% for paragraph in paragraphs %}
+    <p>{{ paragraph }}</p>
+    {% endfor %}
+  </div>
+
+  {% if closing %}
+  <div class="closing">{{ closing }}</div>
+  {% endif %}
+</body>
+</html>

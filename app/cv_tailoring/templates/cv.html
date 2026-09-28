@@ -1,0 +1,134 @@
+{#
+  Tailored CV layout. Deliberately conservative: one column, no images, no
+  tables, no floats, no colour beyond grey text. Everything here has to
+  survive two hostile round trips -- an employer's ATS re-extracting the
+  plain text, and a photocopier at a DPSA government office -- so visual
+  hierarchy is carried by size, weight and one hairline rule, never by
+  layout tricks that reorder or drop text when the PDF is parsed back out.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ name or "Curriculum Vitae" }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 2.2cm;
+    }
+
+    body {
+      font-family: "Liberation Sans", Arial, Helvetica, sans-serif;
+      font-size: 10pt;
+      line-height: 1.35;
+      color: #1a1a1a;
+      margin: 0;
+    }
+
+    /* Level 1 -- the candidate. The largest thing on the page, which is the
+       whole point: previously the words "Personal Details" outranked her
+       own name. */
+    .name {
+      font-size: 22pt;
+      font-weight: bold;
+      letter-spacing: 0.2pt;
+      margin: 0 0 2pt 0;
+    }
+
+    .contact {
+      font-size: 9.5pt;
+      color: #555555;
+      margin: 0 0 4pt 0;
+    }
+
+    /* Level 2 -- section headers. */
+    h2 {
+      font-size: 13pt;
+      font-weight: bold;
+      margin: 14pt 0 5pt 0;
+      padding-bottom: 2pt;
+      border-bottom: 0.5pt solid #999999;
+    }
+
+    /* Level 3 -- role / employer, with dates as muted secondary text on the
+       same line. Inline rather than right-floated on purpose: a float can
+       reorder text in the extracted content stream, and an ATS reading this
+       back must still see "<role> <dates>" in reading order. */
+    .role {
+      font-size: 10.5pt;
+      font-weight: bold;
+      margin: 7pt 0 1pt 0;
+    }
+
+    .dates {
+      font-weight: normal;
+      font-size: 9.5pt;
+      color: #555555;
+    }
+
+    /* Level 4 -- achievement bullets. Real list markup, so the PDF carries
+       actual bullet glyphs and an ATS sees discrete list items. */
+    ul {
+      margin: 2pt 0 0 0;
+      padding-left: 14pt;
+    }
+
+    li {
+      margin: 0 0 2pt 0;
+      padding-left: 2pt;
+    }
+
+    p.prose {
+      margin: 0 0 4pt 0;
+      text-align: left;
+    }
+
+    .entry {
+      break-inside: avoid;
+    }
+
+    section {
+      break-inside: auto;
+    }
+  </style>
+</head>
+<body>
+  {% if name %}
+  <header>
+    <div class="name">{{ name }}</div>
+    {% if contact_line %}<div class="contact">{{ contact_line }}</div>{% endif %}
+  </header>
+  {% endif %}
+
+  {% for section in sections %}
+  <section>
+    <h2>{{ section.name }}</h2>
+
+    {% if section.layout == "prose" %}
+      {% for paragraph in section.paragraphs %}
+      <p class="prose">{{ paragraph }}</p>
+      {% endfor %}
+
+    {% elif section.layout == "entries" %}
+      {% for entry in section.entries %}
+      <div class="entry">
+        {% if entry.heading %}
+        <p class="role">{{ entry.heading }}{% if entry.dates %} <span class="dates">{{ entry.dates }}</span>{% endif %}</p>
+        {% endif %}
+        {% if entry.bullets %}
+        <ul>
+          {% for bullet in entry.bullets %}<li>{{ bullet }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+    {% else %}
+      <ul>
+        {% for item in section.items %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+  {% endfor %}
+</body>
+</html>

@@ -6,27 +6,71 @@ from app.recommendations import features
 
 class SkillCompatibilityTests(unittest.TestCase):
     def test_full_overlap_scores_high(self):
-        # Laplace/add-one smoothing -- (matched+1)/(required+2) -- means even
-        # a perfect match on a small number of required skills stays a bit
-        # under 1.0 (2/2 -> 0.75): appropriate humility about a small sample,
-        # not a bug. It climbs toward 1.0 as the skill count grows (see the
-        # next test).
+        # Plain proportion (matched/required), not Laplace-smoothed -- a
+        # perfect match is exactly 1.0 regardless of how many skills were
+        # required. See test_full_overlap_is_exactly_one_regardless_of_
+        # required_skill_count for why: the old smoothed version made a
+        # small-N perfect match (e.g. 1/1) score identically to a partial
+        # large-N match (3/4), which mis-ranked genuinely stronger matches
+        # below weaker ones.
         probability, matched, missing = features.skill_compatibility(["excel", "communication"], [], ["excel", "communication"])
-        self.assertGreater(probability, 0.7)
+        self.assertEqual(probability, 1.0)
         self.assertEqual(matched, ["communication", "excel"])
         self.assertEqual(missing, [])
 
-    def test_full_overlap_approaches_one_as_required_skill_count_grows(self):
+    def test_full_overlap_is_exactly_one_regardless_of_required_skill_count(self):
         skills = ["excel", "communication", "admin", "sales", "typing", "filing", "reception", "invoicing"]
         probability, _, missing = features.skill_compatibility(skills, [], skills)
-        self.assertGreater(probability, 0.85)
+        self.assertEqual(probability, 1.0)
         self.assertEqual(missing, [])
 
-    def test_no_overlap_scores_low_but_not_zero(self):
+    def test_coverage_is_ranked_correctly_across_different_required_counts(self):
+        # The concrete bug this fix closes: under the old (matched+1)/
+        # (required+2) formula, 1 matched of 1 required and 3 matched of 4
+        # required scored IDENTICALLY (both (1+1)/(1+2) = (3+1)/(4+2) =
+        # 2/3), and 4 matched of 6 required ((4+1)/(6+2) = 5/8 = 0.625)
+        # scored WORSE than the trivial 1/1 case -- even though matching
+        # four distinct required skills is stronger real evidence of fit
+        # than matching one. A plain proportion ranks these correctly by
+        # actual coverage: 100% > 75% > 66.7%.
+        one_of_one, _, _ = features.skill_compatibility(["excel"], [], ["excel"])
+        three_of_four, _, _ = features.skill_compatibility(
+            ["excel", "communication", "admin"], [], ["excel", "communication", "admin", "sales"]
+        )
+        four_of_six, _, _ = features.skill_compatibility(
+            ["excel", "communication", "admin", "sales"],
+            [],
+            ["excel", "communication", "admin", "sales", "typing", "filing"],
+        )
+        self.assertEqual(one_of_one, 1.0)
+        self.assertEqual(three_of_four, 0.75)
+        self.assertAlmostEqual(four_of_six, 2 / 3)
+        self.assertGreater(one_of_one, three_of_four)
+        self.assertGreater(three_of_four, four_of_six)
+
+    def test_no_overlap_scores_zero_on_this_factor(self):
+        # No longer smoothed away from zero -- a listing whose single stated
+        # requirement the candidate entirely lacks gets a hard 0 on the
+        # skills factor specifically. The overall listing score still isn't
+        # zero (other weighted factors still contribute via the log-odds
+        # pool in scoring.combine), this only changes the skills factor's
+        # own contribution.
         probability, matched, missing = features.skill_compatibility(["forklift"], [], ["excel"])
-        self.assertGreater(probability, 0.0)
-        self.assertLess(probability, 0.4)
+        self.assertEqual(probability, 0.0)
         self.assertEqual(missing, ["excel"])
+
+    def test_a_candidate_with_zero_stated_skills_is_neutral_not_a_confirmed_miss(self):
+        # Distinct from the case above: "forklift" vs "excel" is a real,
+        # stated skill that simply doesn't overlap -- a genuine 0.0 is
+        # correct there. A candidate with NO skills recorded anywhere
+        # (profile or CV) hasn't told us anything at all, which is the same
+        # "no evidence" situation the empty-required-skills case already
+        # protects -- it must not be scored as if they'd confirmed lacking
+        # every requirement.
+        probability, matched, missing = features.skill_compatibility([], [], ["excel", "communication"])
+        self.assertEqual(probability, 0.5)
+        self.assertEqual(matched, [])
+        self.assertEqual(missing, ["communication", "excel"])
 
     def test_untagged_listing_is_neutral_not_zero(self):
         """The old implementation returned score=0 for a listing with no
@@ -64,9 +108,9 @@ class SkillCompatibilityTests(unittest.TestCase):
     def test_overlapping_profile_and_cv_skills_are_not_double_counted(self):
         probability, matched, _ = features.skill_compatibility(["excel"], ["excel"], ["excel"])
         self.assertEqual(matched, ["excel"])
-        # (1+1)/(1+2) -- the same as a single source stating "excel" once,
-        # not inflated by the skill appearing in both sources.
-        self.assertAlmostEqual(probability, 2 / 3)
+        # 1/1 -- the same as a single source stating "excel" once, not
+        # inflated by the skill appearing in both sources.
+        self.assertEqual(probability, 1.0)
 
 
 class ExperienceCompatibilityTests(unittest.TestCase):

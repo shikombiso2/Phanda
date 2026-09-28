@@ -44,14 +44,35 @@ def skill_compatibility(
     by an unrelated edit. matched/missing below report the unioned result
     only -- callers don't need to know which source a match came from.
 
-    Uses add-one (Laplace) smoothing on the matched/required ratio --
-    (matched + 1) / (required + 2) -- which is the Bayesian posterior mean of
-    a Beta(1, 1) prior updated by the observed matches. Practically: a
-    listing needing 1 skill the candidate lacks does not score a hard 0
-    (which plain division would give), and a listing tagged with no skills
-    at all is neutral rather than automatically 0 -- the old implementation's
-    behaviour, which unfairly buried every under-tagged listing at the
-    bottom of the feed regardless of actual fit.
+    A listing tagged with no required skills at all is neutral (0.5), not
+    automatically 0 -- the old implementation's behaviour, which unfairly
+    buried every under-tagged listing at the bottom of the feed regardless
+    of actual fit. That neutral-for-empty case is the ONE thing preserved
+    unconditionally here.
+
+    For a listing that does state required skills, the score is the plain
+    matched/required proportion -- matched_count / max(1, len(required)) --
+    not the Laplace-smoothed (matched + 1) / (required + 2) this used to be.
+    The smoothed version actively mis-ranked listings: it made a listing
+    needing 1 skill the candidate has (1/1, "genuinely 100% covered") score
+    IDENTICAL to one needing 4 skills where only 3 are matched (3/4 -- (3+1)/
+    (4+2) = 4/6 = (1+1)/(1+2) exactly), and WORSE than a listing needing 6
+    skills where 4 are matched ((4+1)/(6+2) = 5/8 = 0.625 < 2/3), even though
+    matching four distinct required skills is stronger real evidence of fit
+    than matching one. A plain proportion doesn't have that failure: it's
+    monotonic in both matched count and coverage, so "matched everything
+    required" always outscores "matched some of several", and "matched more
+    of several" always outscores "matched fewer of several", regardless of
+    the sizes involved.
+
+    One more neutral case, distinct from the empty-required one above: a
+    candidate who hasn't stated ANY skills at all (empty profile.skills AND
+    no CV skills) is a true cold start, not a confirmed non-match -- per
+    this module's own rule, missing data is "no evidence" (0.5), never "bad"
+    (0.0). A plain proportion can't tell "stated some skills, none of which
+    overlap" (a real signal: 0.0 is correct) apart from "stated nothing at
+    all" (no signal either way) on its own, so that case is handled
+    explicitly here rather than folded into the division.
     """
     required = sorted({normalize_skill(skill) for skill in required_skills if skill.strip()})
     owned = {normalize_skill(skill) for skill in [*profile_skills, *cv_skills] if skill.strip()}
@@ -59,7 +80,7 @@ def skill_compatibility(
         return NEUTRAL, [], []
     matched = [skill for skill in required if skill in owned]
     missing = [skill for skill in required if skill not in owned]
-    probability = (len(matched) + 1) / (len(required) + 2)
+    probability = NEUTRAL if not owned else len(matched) / max(1, len(required))
     return probability, matched, missing
 
 

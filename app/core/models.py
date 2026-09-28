@@ -292,7 +292,13 @@ class Listing(Base):
 
 class Application(Base):
     __tablename__ = "applications"
-    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uq_application_idempotency"),)
+    # Scoped per-listing, not just per-user -- a client-generated key reused
+    # across two different listings (e.g. a retry-after-navigation bug) must
+    # still create two applications, not silently return the first listing's
+    # row for the second. See app/applications/router.py's apply_to_listing
+    # dedup check, which queries this same (user_id, listing_id,
+    # idempotency_key) triple.
+    __table_args__ = (UniqueConstraint("user_id", "listing_id", "idempotency_key", name="uq_application_idempotency"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)

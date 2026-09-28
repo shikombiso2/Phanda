@@ -44,6 +44,10 @@ class ListingSummaryOut(BaseModel):
     salary_period: str | None
     salary_currency: str | None
     required_skills: list[str]
+    apply_method: ApplyMethod
+    """Needed even in the trimmed list shape: a manual (e.g. DPSA) listing
+    needs to be flagged as such before the user ever taps into it, not just
+    on the detail view."""
     posted_at: datetime | None
 
     model_config = {"from_attributes": True}

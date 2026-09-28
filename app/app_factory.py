@@ -37,7 +37,13 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_allowed_origins_list(),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=["Authorization", "Content-Type"],
+        # Idempotency-Key: sent by the frontend on every apply/generate call
+        # that must survive a retry without double-applying/double-billing
+        # (POST /applications/{id}/apply, POST /tailored-documents). Missing
+        # from this list, the browser's own preflight check rejects the
+        # request before it's ever sent -- confirmed live: curl (no CORS
+        # enforcement) saw a clean 202, only a real browser failed.
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
     )
 
     app.include_router(health_router)

@@ -393,3 +393,27 @@ class TailoringAuthorizationIntegrationTests(unittest.TestCase):
             application = db.scalar(select(Application).where(Application.listing_id == self.manual_listing.id))
             self.assertEqual(application.status, ApplicationStatus.prepared)
             self.assertEqual(application.submission_status, ApplicationSubmissionStatus.not_started)
+
+    def test_reused_idempotency_key_across_different_listings_creates_two_applications(self):
+        # The dedup check used to match on (user_id, idempotency_key) alone,
+        # so reusing a key across two different listings would silently
+        # return the FIRST listing's application for the second apply --
+        # no new row, no error, just the wrong application handed back.
+        # Widened to (user_id, listing_id, idempotency_key): a shared key is
+        # only a duplicate for the SAME listing.
+        shared_key = "shared-key-reused-across-listings"
+        first = self.client.post(f"/applications/{self.ats_listing.id}/apply", headers={"Idempotency-Key": shared_key})
+        self.assertEqual(first.status_code, 202)
+        second = self.client.post(f"/applications/{self.manual_listing.id}/apply", headers={"Idempotency-Key": shared_key})
+        self.assertEqual(second.status_code, 202)
+
+        self.assertNotEqual(first.json()["id"], second.json()["id"])
+        self.assertEqual(first.json()["listing_id"], str(self.ats_listing.id))
+        self.assertEqual(second.json()["listing_id"], str(self.manual_listing.id))
+
+        with self.Session() as db:
+            applications = db.scalars(
+                select(Application).where(Application.user_id == self.user_a.id, Application.idempotency_key == shared_key)
+            ).all()
+            self.assertEqual(len(applications), 2)
+            self.assertEqual({a.listing_id for a in applications}, {self.ats_listing.id, self.manual_listing.id})

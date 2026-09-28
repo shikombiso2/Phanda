@@ -49,7 +49,13 @@ def apply_to_listing(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Profile not found")
 
     if idempotency_key:
-        duplicate = db.scalar(select(Application).where(Application.user_id == user.id, Application.idempotency_key == idempotency_key))
+        duplicate = db.scalar(
+            select(Application).where(
+                Application.user_id == user.id,
+                Application.listing_id == listing_id,
+                Application.idempotency_key == idempotency_key,
+            )
+        )
         if duplicate:
             return _apply_out(duplicate, duplicate.listing)
     tailored_document_id = payload.tailored_document_id if payload else None

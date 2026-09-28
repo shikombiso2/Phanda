@@ -11,13 +11,16 @@ class TailoringProvider(Protocol):
 
     async def analyze_and_plan(self, candidate_text: str, job: dict) -> AnalysisPlan: ...
 
-    async def generate(self, candidate: CandidateFacts, job: JobRequirements, strategy: MatchingStrategy) -> TailoredCv: ...
+    async def generate(
+        self, candidate: CandidateFacts, job: JobRequirements, strategy: MatchingStrategy, listing: dict
+    ) -> TailoredCv: ...
 
     async def revise(
         self,
         candidate: CandidateFacts,
         job: JobRequirements,
         strategy: MatchingStrategy,
+        listing: dict,
         draft: TailoredCv,
         issues: list[ValidationIssue],
     ) -> TailoredCv: ...

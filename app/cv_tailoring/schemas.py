@@ -63,6 +63,12 @@ class CvSection(BaseModel):
 class TailoredCv(BaseModel):
     sections: list[CvSection] = Field(min_length=1)
     cover_letter: list[CvClaim] = Field(min_length=1)
+    # A plain sign-off ("Kind regards, <candidate name>"), not a CvClaim: it
+    # doesn't cite a candidate fact the way a body claim does, it just names
+    # the candidate -- who they are, not a claim about them. Required so a
+    # generated cover letter can never end abruptly on a body claim with no
+    # closing at all (confirmed live: the pre-fix output did exactly that).
+    cover_letter_closing: str = Field(min_length=1, max_length=200)
 
 
 class ValidationIssue(BaseModel):

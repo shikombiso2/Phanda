@@ -69,9 +69,9 @@ def process_tailored_document(db: Session, document_id) -> None:
             db.commit()
 
         _transition(db, document.id, TailoredDocumentStatus.validating)
-        draft = asyncio.run(provider.generate(plan.candidate_facts, plan.job_requirements, plan.strategy))
-        requirement_ids = {requirement.id for requirement in plan.job_requirements.requirements}
-        issues = validate_tailored_cv(draft, plan.candidate_facts.facts, requirement_ids)
+        draft = asyncio.run(provider.generate(plan.candidate_facts, plan.job_requirements, plan.strategy, document.listing_snapshot_json))
+        requirements = plan.job_requirements.requirements
+        issues = validate_tailored_cv(draft, plan.candidate_facts.facts, requirements)
         if issues:
             emit_event("validation_failed", document_id=document_id, stage="draft", issue_count=len(issues))
             document = db.scalar(select(TailoredDocument).where(TailoredDocument.id == document_id).with_for_update())
@@ -83,9 +83,11 @@ def process_tailored_document(db: Session, document_id) -> None:
             document.status = TailoredDocumentStatus.processing
             db.commit()
             emit_event("correction_attempt", document_id=document_id)
-            draft = asyncio.run(provider.revise(plan.candidate_facts, plan.job_requirements, plan.strategy, draft, issues))
+            draft = asyncio.run(
+                provider.revise(plan.candidate_facts, plan.job_requirements, plan.strategy, document.listing_snapshot_json, draft, issues)
+            )
             _transition(db, document_id, TailoredDocumentStatus.validating)
-            issues = validate_tailored_cv(draft, plan.candidate_facts.facts, requirement_ids)
+            issues = validate_tailored_cv(draft, plan.candidate_facts.facts, requirements)
             if issues:
                 emit_event("validation_failed", document_id=document_id, stage="corrected_draft", issue_count=len(issues))
                 raise ProviderError("validation_failed")

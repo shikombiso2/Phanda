@@ -17,6 +17,7 @@ VALID_CV = {
         {"name": "Skills", "claims": [{"text": "Python", "source_fact_ids": ["fact_1"], "job_requirement_ids": []}]},
     ],
     "cover_letter": [{"text": "Python", "source_fact_ids": ["fact_1"], "job_requirement_ids": []}],
+    "cover_letter_closing": "Kind regards, Test Candidate",
 }
 
 

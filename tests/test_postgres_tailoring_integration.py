@@ -236,7 +236,8 @@ class ReservationPostgresIntegrationTests(unittest.TestCase):
             sections=[
                 CvSection(name="Professional Summary", claims=[CvClaim(text=source_text, source_fact_ids=["fact_1"])]),
                 CvSection(name="Skills", claims=[CvClaim(text="Python", source_fact_ids=["fact_1"])]),
-            ], cover_letter=[CvClaim(text="Python", source_fact_ids=["fact_1"])]
+            ], cover_letter=[CvClaim(text="Python", source_fact_ids=["fact_1"])],
+            cover_letter_closing="Kind regards, Test Candidate",
         )
 
         class Provider:

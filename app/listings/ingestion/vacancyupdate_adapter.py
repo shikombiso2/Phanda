@@ -204,6 +204,29 @@ _BLOCK_LEVEL_JOIN = "\n"
 
 _CONTENT_CLASS_RE = re.compile(r"entry-content|post-content|content-area", re.IGNORECASE)
 
+# Junk excluded by its actual DOM element, not by matching strings in the
+# extracted text -- confirmed against the real Aramex Learnership page:
+#
+#   <div class="stream-item stream-item-below-post-content">   <- ad wrapper
+#     <script src="...adsbygoogle.js"></script>
+#     <ins class="adsbygoogle" data-ad-slot="..."></ins>
+#     <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+#   </div>
+#   <div class="post-shortlink">                               <- Copy URL widget
+#     <input id="short-post-url" ...><button id="copy-post-url">Copy URL</button>
+#     <span id="copy-post-url-msg">URL Copied</span>
+#   </div>
+#   <script>document.getElementById('copy-post-url').onclick = ...</script>
+#
+# Dropping whole subtrees by tag and by wrapper class generalises: any future
+# ad slot, embed or inline widget script is excluded by what it IS, rather
+# than by this codebase having to learn each new snippet's wording.
+_SKIP_SUBTREE_TAGS = frozenset({"script", "style", "ins", "noscript", "iframe", "svg", "form", "button"})
+_SKIP_SUBTREE_CLASS_RE = re.compile(
+    r"\b(?:stream-item|post-shortlink|adsbygoogle|sharedaddy|related-posts|wp-block-buttons)\b",
+    re.IGNORECASE,
+)
+
 
 class _ContentExtractor(HTMLParser):
     """Flattens a page to plain text the same way BeautifulSoup's
@@ -221,21 +244,52 @@ class _ContentExtractor(HTMLParser):
     incidental occurrences of "Centre" and "based in" that, without this
     scoping, got captured as the post's own location. <h1> is read
     regardless of the content div, since the page title lives outside it.
+
+    Alongside that flat text it records `blocks`: the same content as typed
+    (kind, text) pairs -- heading / paragraph / bullet / number -- so the
+    stored description can keep the structure the page actually has instead
+    of collapsing six labelled sections into one unbroken run of prose. The
+    site marks a section heading as a <strong> opening its own <p>
+    ("<p><strong>Eligibility Criteria</strong><br/>..."), never as <h2>/<h3>,
+    and puts real <ul>/<ol><li> markup around the criteria themselves.
     """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.strings: list[str] = []
+        self.blocks: list[tuple[str, str]] = []
         self.h1: str | None = None
         self._in_h1 = False
         self.anchors: list[tuple[int, str]] = []
         self._pending_href: str | None = None
         self._content_div_depth: int | None = None  # None = not yet inside; 0+ = nested <div> depth inside it
+        self._skip_tag: str | None = None
+        self._skip_depth = 0
+        self._buffer: list[str] = []
+        self._block_kind = "paragraph"
+        self._strong_buffer: list[str] | None = None
+        self._ordered_depth = 0
+
+    def _flush(self) -> None:
+        text = " ".join(" ".join(self._buffer).split())
+        if text:
+            self.blocks.append((self._block_kind, text))
+        self._buffer = []
 
     def handle_starttag(self, tag: str, attrs) -> None:
         attrs_dict = dict(attrs)
+        # Inside a junk subtree: track nesting of the same tag so an inner
+        # <div> can't end the skip early, and swallow everything else.
+        if self._skip_tag is not None:
+            if tag == self._skip_tag:
+                self._skip_depth += 1
+            return
         if tag == "h1" and self.h1 is None:
             self._in_h1 = True
+        if tag in _SKIP_SUBTREE_TAGS or _SKIP_SUBTREE_CLASS_RE.search(attrs_dict.get("class", "")):
+            self._skip_tag = tag
+            self._skip_depth = 1
+            return
         if self._content_div_depth is None:
             if tag == "div" and _CONTENT_CLASS_RE.search(attrs_dict.get("class", "")):
                 self._content_div_depth = 0
@@ -244,14 +298,40 @@ class _ContentExtractor(HTMLParser):
             self._content_div_depth += 1
         if tag == "a" and attrs_dict.get("href"):
             self._pending_href = attrs_dict["href"]
+        if tag == "ol":
+            self._ordered_depth += 1
+        if tag in ("p", "li"):
+            self._flush()
+            self._block_kind = ("number" if self._ordered_depth else "bullet") if tag == "li" else "paragraph"
+        elif tag == "strong" and self._block_kind == "paragraph" and not self._buffer:
+            # A <strong> opening its own paragraph is this site's section
+            # heading. One that appears mid-sentence is just bold text.
+            self._strong_buffer = []
 
     def handle_endtag(self, tag: str) -> None:
+        if self._skip_tag is not None:
+            if tag == self._skip_tag:
+                self._skip_depth -= 1
+                if self._skip_depth == 0:
+                    self._skip_tag = None
+            return
         if tag == "h1":
             self._in_h1 = False
         if self._content_div_depth is None:
             return
+        if tag == "ol" and self._ordered_depth:
+            self._ordered_depth -= 1
+        if tag == "strong" and self._strong_buffer is not None:
+            heading = " ".join(" ".join(self._strong_buffer).split())
+            if heading:
+                self.blocks.append(("heading", heading))
+            self._strong_buffer = None
+        if tag in ("p", "li"):
+            self._flush()
+            self._block_kind = "paragraph"
         if tag == "div":
             if self._content_div_depth == 0:
+                self._flush()
                 self._content_div_depth = None  # left the content div entirely
             else:
                 self._content_div_depth -= 1
@@ -259,6 +339,8 @@ class _ContentExtractor(HTMLParser):
             self._pending_href = None
 
     def handle_data(self, data: str) -> None:
+        if self._skip_tag is not None:
+            return
         if self._in_h1 and self.h1 is None:
             self.h1 = data.strip() or None
         if self._content_div_depth is None:
@@ -269,9 +351,49 @@ class _ContentExtractor(HTMLParser):
         if self._pending_href:
             self.anchors.append((len(self.strings), self._pending_href))
         self.strings.append(stripped)
+        if self._strong_buffer is not None:
+            self._strong_buffer.append(stripped)
+        else:
+            self._buffer.append(stripped)
+
+    def close(self) -> None:
+        super().close()
+        self._flush()
 
     def text(self) -> str:
         return _BLOCK_LEVEL_JOIN.join(self.strings)
+
+
+def build_markdown_description(blocks: list[tuple[str, str]]) -> str:
+    """Render extracted blocks as Markdown.
+
+    Markdown rather than a structured JSON column, deliberately: it keeps
+    `Listing.description` one type across all four ingestion sources (a JSON
+    column would make vacancyupdate the only structured one and force every
+    reader to branch), it needs no migration, every existing plain-text
+    description is already valid Markdown, and extract_required_skills()
+    keeps working because "## " and "- " prefixes don't touch the
+    word-boundary matching it does. It is a standard text format, not a
+    private delimiter scheme.
+    """
+    lines: list[str] = []
+    number = 0
+    for kind, text in blocks:
+        if kind == "number":
+            number += 1
+        else:
+            number = 0
+        if kind == "heading":
+            lines.append(f"\n## {text}\n")
+        elif kind == "bullet":
+            lines.append(f"- {text}")
+        elif kind == "number":
+            lines.append(f"{number}. {text}")
+        else:
+            lines.append(f"\n{text}\n")
+    # Collapse the blank-line padding above into exactly one blank line
+    # between blocks, while keeping consecutive list items tight together.
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 _COMPANY_RE = re.compile(r"About\s+(?:the\s+)?(.+)", re.IGNORECASE)
@@ -413,7 +535,7 @@ def parse_post(url: str, html: str) -> NormalizedListing:
         category=category,
         salary_min=None,
         salary_max=None,
-        description=full_text,
+        description=build_markdown_description(extractor.blocks) or full_text,
         required_skills=extract_required_skills(f"{title} {full_text}"),
         apply_method=_APPLY_METHOD_MAP[apply_method],
         apply_target=apply_target,

@@ -161,5 +161,111 @@ class VacancyUpdateParserTests(unittest.TestCase):
         self.assertEqual(listing.listing_type, ListingType.learnership)
 
 
+# Reproduces the real Aramex Learnership page's structure exactly: ad wrapper
+# divs carrying adsbygoogle <script>/<ins>, the post-shortlink "Copy URL"
+# widget with its own inline onclick <script>, section headings as a <strong>
+# opening its own <p> (the site never uses <h2>/<h3>), and eligibility
+# criteria as genuine <ul>/<ol><li> markup.
+_ARAMEX_BODY = """
+<div class="stream-item stream-item-above-post-content"><div class="stream-item-size">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-64773"></script>
+<ins class="adsbygoogle" style="display:block" data-ad-slot="2237923639"></ins>
+<script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+</div></div>
+<p><strong>About Aramex</strong><br /> Aramex is a global logistics and transportation company.</p>
+<p><strong>About the Aramex Learnership 2026</strong><br /> Aramex is searching for candidates.</p>
+<p><strong>Eligibility Criteria</strong><br /> Review the requirements before applying.</p>
+<p><strong>1. Basic Qualifications</strong></p>
+<ul>
+<li>Hold a Matric (Grade 12) qualification as the minimum educational requirement</li>
+<li>Achieve a minimum pass mark of 45% in all language subjects</li>
+<li>Maintain a clear criminal record to qualify for the learnership</li>
+</ul>
+<p><strong>Application Instructions</strong><br /> Apply online: <a href="https://careers.aramex.com/job/Learner/8496-en_US">Aramex Learnership 2026</a></p>
+<ol>
+<li>Use Google Chrome to access the application website</li>
+<li>Complete the application form carefully</li>
+</ol>
+<p><strong>Closing Date</strong></p>
+<p>Application is available as long as it is not deleted.</p>
+<div class="stream-item stream-item-below-post-content">
+<ins class="adsbygoogle" data-ad-slot="3319135627"></ins>
+<script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+</div>
+<div class="post-shortlink">
+<input type="text" id="short-post-url" value="vacancyupdate.co.za/?p=10224" data-url="https://vacancyupdate.co.za/?p=10224">
+<button type="button" id="copy-post-url" class="button">Copy URL</button>
+<span id="copy-post-url-msg" style="display:none;">URL Copied</span>
+</div>
+<script>
+document.getElementById('copy-post-url').onclick = function(){
+    var copyText = document.getElementById('short-post-url');
+    copyText.select();
+    navigator.clipboard.writeText(copyText.getAttribute('data-url'));
+}
+</script>
+"""
+
+
+class VacancyUpdateContentQualityTests(unittest.TestCase):
+    """Real listings used to store ad/script junk and the whole post as one
+    unbroken run of text. Both are structural, both are covered here."""
+
+    def setUp(self):
+        html = _page(h1="Aramex Learnership 2026: Welcoming Unemployed Individuals", body_html=_ARAMEX_BODY)
+        self.listing = parse_post("https://vacancyupdate.co.za/aramex-learnership", html)
+
+    def test_ad_and_widget_script_junk_is_excluded(self):
+        for junk in [
+            "adsbygoogle",
+            "getElementById",
+            "copyText",
+            "navigator.clipboard",
+            "Copy URL",
+            "URL Copied",
+            "pagead2.googlesyndication.com",
+        ]:
+            self.assertNotIn(junk, self.listing.description, f"{junk!r} leaked into the stored description")
+
+    def test_section_headings_are_preserved_as_markdown_headers(self):
+        for heading in [
+            "## About Aramex",
+            "## About the Aramex Learnership 2026",
+            "## Eligibility Criteria",
+            "## Application Instructions",
+            "## Closing Date",
+        ]:
+            self.assertIn(heading, self.listing.description)
+
+    def test_eligibility_criteria_stay_list_items_not_run_on_prose(self):
+        lines = self.listing.description.splitlines()
+        self.assertIn("- Hold a Matric (Grade 12) qualification as the minimum educational requirement", lines)
+        self.assertIn("- Achieve a minimum pass mark of 45% in all language subjects", lines)
+        self.assertIn("- Maintain a clear criminal record to qualify for the learnership", lines)
+
+    def test_ordered_lists_keep_their_numbering(self):
+        lines = self.listing.description.splitlines()
+        self.assertIn("1. Use Google Chrome to access the application website", lines)
+        self.assertIn("2. Complete the application form carefully", lines)
+
+    def test_paragraphs_are_separated_rather_than_run_together(self):
+        self.assertIn(
+            "## About Aramex\n\nAramex is a global logistics and transportation company.",
+            self.listing.description,
+        )
+
+    def test_structural_parsing_still_works_with_junk_removed(self):
+        # Removing whole DOM subtrees must not disturb the text-node indices
+        # the apply-link lookup walks, nor the company/heading regexes.
+        self.assertEqual(self.listing.apply_method, ApplyMethod.ats_link)
+        self.assertEqual(self.listing.apply_target, "https://careers.aramex.com/job/Learner/8496-en_US")
+        self.assertEqual(self.listing.company, "Aramex")
+
+    def test_skill_extraction_still_works_against_markdown(self):
+        # "## " and "- " prefixes must not interfere with the word-boundary
+        # keyword matching extract_required_skills does.
+        self.assertIn("matric", self.listing.required_skills)
+
+
 if __name__ == "__main__":
     unittest.main()

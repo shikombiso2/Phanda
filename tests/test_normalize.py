@@ -36,7 +36,7 @@ class NormalizeTests(unittest.TestCase):
             {
                 "id": "abc-123",
                 "title": "Admin Assistant",
-                "description": "Needs Excel and communication skills",
+                "description": "Needs Excel and admin skills",
                 "redirect_url": "https://adzuna.example/job",
                 "company": {"display_name": "Acme"},
                 "location": {"display_name": "Cape Town"},
@@ -50,7 +50,7 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(row.source, "adzuna")
         self.assertEqual(row.source_listing_id, "abc-123")
         self.assertEqual(row.apply_method, ApplyMethod.ats_link)
-        self.assertEqual(row.required_skills, ["admin", "communication", "excel"])
+        self.assertEqual(row.required_skills, ["admin", "excel"])
         self.assertEqual(row.category, "Admin Jobs")
 
     def test_missing_category_is_none_not_an_error(self):

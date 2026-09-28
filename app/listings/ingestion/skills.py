@@ -37,7 +37,6 @@ SKILL_VOCABULARY: dict[str, list[str]] = {
     "powerpoint": ["ms powerpoint", "microsoft powerpoint"],
     "microsoft office": ["ms office", "office suite"],
     "google workspace": ["google docs", "google sheets", "g suite"],
-    "email": ["email correspondence", "outlook"],
     "sage": ["sage accounting", "sage pastel", "pastel"],
     "payroll": ["payroll administration"],
     # Customer-facing / retail
@@ -70,19 +69,38 @@ SKILL_VOCABULARY: dict[str, list[str]] = {
     "carpentry": ["carpenter"],
     "artisan": ["apprenticeship trade"],
     "health and safety": ["ohs", "occupational health and safety"],
-    # Communication / soft skills
-    "communication": ["communication skills", "verbal communication", "written communication"],
-    "teamwork": ["team player", "team work"],
-    "time management": [],
-    "problem solving": ["problem-solving"],
-    "attention to detail": [],
-    "leadership": ["team leadership", "supervisory"],
+    # Communication / soft skills (generic filler phrases excluded entirely --
+    # see EXCLUDED_SKILLS below)
     "training": ["mentoring", "coaching"],
     "conflict resolution": [],
     "negotiation": [],
-    "multitasking": ["multi-tasking"],
     "planning": ["organisational skills", "organizational skills"],
-    "adaptability": ["flexibility"],
+    # Concrete, decision-relevant -- confirmed live via investigation as
+    # real, specifically stated requirements ("report writing skills",
+    # "skilled in conducting research"), not vague praise any candidate
+    # could claim. Distinct from EXCLUDED_SKILLS: those are generic filler
+    # phrases with no checkable content; these name an actual, specific
+    # ability someone either has evidence of or doesn't.
+    "report writing": ["writing reports", "report compilation"],
+    "research": ["research skills", "conducting research"],
+    # Education level -- confirmed live via investigation: matric/grade-
+    # level and qualification requirements are stated in plain, common
+    # phrasings across real DPSA and Vacancy Update postings ("Grade 12
+    # completed", "Grade 10 or ABET Level 4") and were being scanned but
+    # silently dropped for lack of any matching vocabulary entry at all --
+    # not a text-scanning gap, purely a coverage gap. Kept as separate
+    # canonical entries, not aliases of one "education" tag, because they
+    # are NOT interchangeable: a candidate whose CV states matric doesn't
+    # satisfy a stated degree requirement, and treating them as one tag
+    # would silently claim a match that isn't real.
+    "matric": ["grade 12", "national senior certificate", "senior certificate", "nsc", "matriculation"],
+    "grade 11": [],
+    "grade 10": [],
+    "abet level 4": ["abet level 1", "abet level 2", "abet level 3", "abet"],
+    "diploma": ["national diploma"],
+    "degree": ["bachelor's degree", "bachelors degree", "undergraduate degree"],
+    "honours degree": ["honours", "honors"],
+    "postgraduate": ["postgraduate degree", "postgraduate diploma", "master's degree", "masters degree", "phd", "doctorate"],
     # Marketing / digital
     "marketing": ["digital marketing"],
     "social media": ["social media management", "facebook", "instagram", "tiktok marketing"],
@@ -120,6 +138,41 @@ SKILL_VOCABULARY: dict[str, list[str]] = {
 }
 
 
+# Generic soft-skill filler phrases that are never extracted as a standalone
+# skill, even if a future vocabulary entry or alias would otherwise match
+# them -- these are things any candidate can claim, not a concrete, checkable
+# ability someone could list as its own CV line item.
+#
+# "email"/"phone"/"tel"/"fax" belong to the same exclusion for a different
+# reason: confirmed live against real listings that every occurrence of
+# "email" in required_skills traced back to contact/application-instruction
+# text ("email your CV to...", an enquiries contact's email address, "email
+# address:" before an HR contact), never a genuine stated requirement like
+# "email etiquette". The same contact-method noise applies to phone/tel/fax
+# text, excluded pre-emptively even though none currently sit in
+# SKILL_VOCABULARY, so a future alias addition can't reintroduce them.
+EXCLUDED_SKILLS: frozenset[str] = frozenset(
+    {
+        "problem solving",
+        "teamwork",
+        "communication",
+        "time management",
+        "attention to detail",
+        "work ethic",
+        "leadership",
+        "adaptability",
+        "multitasking",
+        "interpersonal skills",
+        "hard working",
+        "fast learner",
+        "email",
+        "phone",
+        "tel",
+        "fax",
+    }
+)
+
+
 def _pattern(phrase: str) -> re.Pattern[str]:
     escaped = re.escape(phrase.lower())
     # Word boundaries around the whole phrase, not each word inside it, so a
@@ -130,8 +183,39 @@ def _pattern(phrase: str) -> re.Pattern[str]:
 _COMPILED: list[tuple[str, re.Pattern[str]]] = [
     (skill, _pattern(alias))
     for skill, aliases in SKILL_VOCABULARY.items()
+    if skill not in EXCLUDED_SKILLS
     for alias in [skill, *aliases]
 ]
+
+# "X years experience" doesn't fit the literal-alias mechanism above at all
+# -- the number varies, so there's no fixed phrase to list as an alias.
+# Handled as its own regex instead of growing SKILL_VOCABULARY into a real
+# pattern-matching engine for every entry.
+#
+# Deliberately a single flag, not a captured number: checked against
+# app/recommendations/features.skill_compatibility() and
+# build_match_explanation() first -- both only ever do set membership
+# (skill in owned / skill not in owned) on canonical names, never a numeric
+# comparison anywhere in the scoring pipeline. A specific "2" vs "5" years
+# has nowhere downstream to be used yet, so capturing just "experience is
+# required at all" is the right amount of signal for what this app checks
+# today, not an under-implementation -- adding a number without a consumer
+# for it would be complexity with no effect.
+#
+# Matches "2 years experience", "2 years' experience", "1-2 years of
+# relevant work experience", "minimum of two (2) years' experience" (the
+# parenthetical digit is what matches; the spelled-out word before it is
+# not required). Does not match a number spelled out with no digit
+# anywhere ("two years' experience") -- a known limitation of a keyword/
+# regex approach, not attempted here.
+_EXPERIENCE_YEARS_RE = re.compile(
+    r"\(?\d+\)?(?:\s*(?:to|-|–)\s*\(?\d+\)?)?\+?\s*years?'?\s*"
+    r"(?:of\s+)?(?:relevant\s+|working\s+|work\s+|prior\s+|previous\s+|post[- ]qualification\s+)*"
+    r"experience",
+    re.IGNORECASE,
+)
+
+EXPERIENCE_REQUIRED = "years of experience"
 
 
 def extract_required_skills(text: str) -> list[str]:
@@ -140,4 +224,6 @@ def extract_required_skills(text: str) -> list[str]:
     for skill, pattern in _COMPILED:
         if skill not in found and pattern.search(lowered):
             found.add(skill)
+    if EXPERIENCE_REQUIRED not in EXCLUDED_SKILLS and _EXPERIENCE_YEARS_RE.search(lowered):
+        found.add(EXPERIENCE_REQUIRED)
     return sorted(found)

@@ -9,6 +9,7 @@ import { ApiError } from "../lib/apiError";
 import { buildQueryString } from "../lib/queryString";
 import { useAuthStore } from "../store/authStore";
 import { firstName, initials } from "../lib/initials";
+import { locationSummaryLabel } from "../lib/multiLocation";
 import type { ListingType, MatchedListing, Page, ProfileOut } from "../types/api";
 
 const MATCHES_SAMPLE_SIZE = 10;
@@ -213,10 +214,14 @@ export function Home() {
               </>
             )}
 
-            {gapMatch && (
+            {!loadingMatches && !matchesError && opportunities.length > 0 && (
               <>
                 <SectionDivider />
-                <CloseTheGapSection topMatch={gapMatch} batch={matches} />
+                {gapMatch ? (
+                  <CloseTheGapSection topMatch={gapMatch} batch={matches} />
+                ) : (
+                  <NoSkillGapCard />
+                )}
               </>
             )}
           </div>
@@ -246,7 +251,7 @@ function SectionDivider() {
 function OpportunityCarousel({ listings }: { listings: MatchedListing[] }) {
   return (
     <section>
-      <SectionHeader title="Opportunities for you" seeAllTo="/find" />
+      <SectionHeader title="Opportunities for you" seeAllTo="/find?mode=matches" />
       <div className="scrollbar-hide -mx-5 mt-3 flex gap-2 overflow-x-auto px-5 pb-1 sm:-mx-8 sm:px-8">
         {listings.map((listing) => (
           <OpportunityCard key={listing.id} listing={listing} />
@@ -264,12 +269,19 @@ function OpportunityCard({ listing }: { listing: MatchedListing }) {
       state={{ match: listing.match }}
       className="flex w-[168px] shrink-0 flex-col rounded-2xl border border-hairline bg-mist p-3 transition-colors hover:border-ink/25"
     >
-      <span className="mb-2 inline-block self-start rounded-full bg-phanda-green/15 px-2.5 py-1 font-body text-[11px] font-semibold text-phanda-green-dark">
-        {listing.match.score}% match
-      </span>
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        <span className="inline-block self-start rounded-full bg-phanda-green/15 px-2.5 py-1 font-body text-[11px] font-semibold text-phanda-green-dark">
+          {listing.match.score}% match
+        </span>
+        {listing.apply_method === "manual" && (
+          <span className="inline-block self-start rounded-full border border-phanda-gold-dark/30 bg-phanda-gold/15 px-2 py-1 font-body text-[10px] font-bold text-phanda-gold-dark">
+            Z83 required
+          </span>
+        )}
+      </div>
       <p className="font-body text-[13px] font-semibold leading-snug text-ink">{listing.title}</p>
       <p className="mt-1 truncate font-body text-[11px] text-ink/60">
-        {[listing.company, listing.location].filter(Boolean).join(" · ")}
+        {[listing.company, locationSummaryLabel(listing.location)].filter(Boolean).join(" · ")}
       </p>
       {tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -297,8 +309,13 @@ function NewListingRow({ listing }: { listing: MatchedListing }) {
       <div className="min-w-0">
         <p className="truncate font-body text-[15px] font-semibold text-ink">{listing.title}</p>
         <p className="truncate font-body text-sm text-ink/60">
-          {[listing.company, listing.location].filter(Boolean).join(" · ")}
+          {[listing.company, locationSummaryLabel(listing.location)].filter(Boolean).join(" · ")}
         </p>
+        {listing.apply_method === "manual" && (
+          <span className="mt-1 inline-block rounded-full border border-phanda-gold-dark/30 bg-phanda-gold/15 px-2 py-0.5 font-body text-[10px] font-bold text-phanda-gold-dark">
+            Government post -- Z83 required
+          </span>
+        )}
       </div>
       <span className="shrink-0 rounded-full bg-phanda-green/15 px-2.5 py-1 font-body text-[11px] font-semibold text-phanda-green-dark">
         New
@@ -385,6 +402,39 @@ function CloseTheGapSection({ topMatch, batch }: { topMatch: MatchedListing; bat
           className="mt-3 inline-block font-body text-xs font-semibold text-phanda-violet hover:underline"
         >
           Explore free learnerships &rarr;
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Sibling to CloseTheGapSection, not a reuse of it -- deliberately a
+ * different message for a different situation. This renders when none of
+ * the fetched batch has a genuine skill gap (every listing either has no
+ * required_skills left to be missing, or the user already covers what's
+ * there), which is a good outcome, not an error state, so the copy praises
+ * the match rather than pointing at a gap that doesn't exist. Distinct from
+ * ProfileNudgeCard too: that card is driven by profile_completeness and can
+ * appear even when the user does have a skill gap; this one only ever
+ * appears in place of Close the gap, when there isn't one to show.
+ */
+function NoSkillGapCard() {
+  return (
+    <section>
+      <h2 className="mb-3 font-body text-sm font-semibold text-ink/70">Close the gap</h2>
+      <div className="rounded-2xl border border-phanda-violet-border bg-phanda-violet-soft p-4">
+        <p className="font-body text-[13px] font-semibold leading-relaxed text-phanda-violet">
+          You're a strong match for everything we found
+        </p>
+        <p className="mt-1 font-body text-xs leading-relaxed text-ink/60">
+          Complete more of your profile to surface even more opportunities.
+        </p>
+        <Link
+          to="/onboarding/profile"
+          className="mt-3 inline-block font-body text-xs font-semibold text-phanda-violet hover:underline"
+        >
+          Complete your profile &rarr;
         </Link>
       </div>
     </section>

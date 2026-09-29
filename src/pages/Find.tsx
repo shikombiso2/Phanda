@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { AppNav, BOTTOM_NAV_SPACER_CLASS } from "../components/AppNav";
 import { Button } from "../components/Button";
 import { ListingCard } from "../components/ListingCard";
@@ -43,8 +43,27 @@ export function Find() {
   const [dismissedNotice, setDismissedNotice] = useState(false);
   const onboardingIssue = (location.state as OnboardingIssueState | null)?.onboardingIssue;
 
+  const [searchParams] = useSearchParams();
+  // Explicit arrival signal from Home's "See all" link (/find?mode=matches)
+  // -- rather than relying on the ambient hasSkills/no-filters heuristic
+  // below, which is invisible and easy to accidentally fall out of (typing
+  // one character into a filter box silently flips the whole page to
+  // generic browse). This only widens WHEN matches mode is chosen by
+  // default (below); it never overrides an active filter, since matches
+  // has no filter support at all -- see the comment on `mode`.
+  const forceMatches = searchParams.get("mode") === "matches";
+
   const [filters, setFilters] = useState<ListingFilterValues>(EMPTY_FILTERS);
   const debouncedQ = useDebouncedValue(filters.q, 400);
+
+  useEffect(() => {
+    if (forceMatches) setFilters(EMPTY_FILTERS);
+    // Only on arrival with the explicit param -- guards against any stray
+    // filter state surviving from a previous visit (e.g. browser
+    // back/forward restoring component state) overriding the caller's
+    // explicit intent to land in matches mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceMatches]);
 
   const hasSkills = (profile?.skills.length ?? 0) > 0;
   const hasActiveFilters = debouncedQ.trim() !== "" || filters.type !== "" || filters.location.trim() !== "" || filters.remote;
@@ -54,7 +73,10 @@ export function Find() {
   // sets a filter, this switches to the plain listings endpoint, which
   // does support them. Matching is the resting state; searching is its
   // own mode. See the chat report for why matches has no filter support.
-  const mode: "matches" | "search" = !hasActiveFilters && hasSkills ? "matches" : "search";
+  // forceMatches only widens the *default* (it stands in for hasSkills, not
+  // for "no active filters") -- an active filter still always wins, exactly
+  // as it did before.
+  const mode: "matches" | "search" = !hasActiveFilters && (hasSkills || forceMatches) ? "matches" : "search";
 
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
@@ -148,6 +170,12 @@ export function Find() {
         <h1 className="font-display text-2xl font-black tracking-tight text-ink">
           {mode === "matches" ? "Matched for you" : "Find work"}
         </h1>
+
+        {mode === "matches" && (
+          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-phanda-green/10 px-3 py-1 font-body text-xs font-semibold text-phanda-green-dark">
+            Showing jobs matched to you
+          </span>
+        )}
 
         <div className="mt-4">
           <ListingFilters values={filters} onChange={setFilters} />

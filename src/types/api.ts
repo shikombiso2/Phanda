@@ -69,7 +69,11 @@ export interface ProfileUpdate {
 }
 
 export type ListingType = "job" | "internship" | "learnership" | "apprenticeship" | "bursary";
-export type ApplyMethod = "ats_link" | "email";
+/** "manual" (e.g. DPSA government circulars): no automated submission path
+ * exists at all -- the user completes and sends a Z83 application form
+ * themselves, entirely outside Phanda. Distinct from "ats_link", which
+ * still means a real external apply page exists to click through to. */
+export type ApplyMethod = "ats_link" | "email" | "manual";
 export type AppliedVia = "phanda_email" | "external_link";
 export type ApplicationStatus =
   | "prepared"
@@ -108,6 +112,7 @@ export interface ListingSummary {
   salary_period?: string | null;
   salary_currency?: string | null;
   required_skills: string[];
+  apply_method: ApplyMethod;
   posted_at: string | null;
 }
 
@@ -161,9 +166,11 @@ export interface ApplyOut {
   applied_via: AppliedVia;
   applied_at: string;
   apply_method: ApplyMethod;
-  /** The employer's own application page when apply_method is "ats_link".
-   * Null for "email", where Phanda has already sent it on the user's
-   * behalf -- there's nothing left for the client to open. */
+  /** The employer's own application page for "ats_link", or the raw
+   * application instructions (an address, an email) for "manual" -- both
+   * are shown to the user. Null only for "email", where Phanda has already
+   * sent it on the user's behalf and there's nothing left for the client
+   * to open. */
   apply_target: string | null;
 }
 
@@ -175,6 +182,18 @@ export interface ApplicationOut {
   tailored_document_id: string | null;
   applied_via: AppliedVia;
   applied_at: string;
+}
+
+export type TailoredDocumentStatus = "queued" | "processing" | "validating" | "rendering" | "ready" | "failed" | "cancelled";
+
+export interface TailoredDocumentOut {
+  id: string;
+  listing_id: string;
+  cv_version_id: string;
+  status: TailoredDocumentStatus;
+  failure_code: string | null;
+  created_at: string;
+  ready_at: string | null;
 }
 
 export interface SkillGapOut {

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { locationSummaryLabel } from "../lib/multiLocation";
 import { formatSalary } from "../lib/salary";
 import type { ListingSummary, MatchExplanation } from "../types/api";
 import { HeartIcon } from "./icons";
@@ -42,17 +43,24 @@ export function ListingCard({ listing, match, saved, onToggleSave }: ListingCard
       </button>
 
       <Link to={`/listings/${listing.id}`} state={match ? { match } : undefined} className="block pr-8">
-        {match && (
-          <div className="mb-2 flex items-center gap-2">
-            <span className="rounded-full bg-phanda-green/10 px-2.5 py-1 font-body text-xs font-bold text-phanda-green-dark">
-              {match.score}% match
-            </span>
+        {(match || listing.apply_method === "manual") && (
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {match && (
+              <span className="rounded-full bg-phanda-green/10 px-2.5 py-1 font-body text-xs font-bold text-phanda-green-dark">
+                {match.score}% match
+              </span>
+            )}
+            {listing.apply_method === "manual" && (
+              <span className="rounded-full border border-phanda-gold-dark/30 bg-phanda-gold/15 px-2.5 py-1 font-body text-xs font-bold text-phanda-gold-dark">
+                Government post -- Z83 required
+              </span>
+            )}
           </div>
         )}
 
         <p className="font-body text-[15px] font-semibold leading-snug text-ink">{listing.title}</p>
         <p className="mt-0.5 font-body text-sm text-ink/60">
-          {[listing.company, listing.location].filter(Boolean).join(" · ")}
+          {[listing.company, locationSummaryLabel(listing.location)].filter(Boolean).join(" · ")}
         </p>
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">

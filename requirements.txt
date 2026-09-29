@@ -5,10 +5,7 @@ celery==5.5.3
 defusedxml==0.7.1
 email-validator==2.3.0
 fastapi==0.116.1
-google-auth==2.57.0
-httpx==0.28.1
-Jinja2==3.1.6
-psycopg[binary]==3.2.9
+psycopg[binary]>=3.2.10
 # Pinned, and it must stay pinned: weasyprint 62.3 declares only
 # `pydyf>=0.10.0` with no upper bound, and pydyf 0.12 removed
 # Stream.transform, which weasyprint 62.3 still calls. Unpinning resolves to

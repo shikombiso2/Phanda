@@ -98,7 +98,13 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
   auth?: boolean;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}, isRetry = false): Promise<T> {
+/**
+ * The auth/retry/error-handling core shared by every request, JSON or not
+ * -- extracted so downloadFile() below doesn't have to reimplement the
+ * single-flight refresh dance just because its response body isn't JSON.
+ * Returns the raw, already-ok Response; callers decide how to read the body.
+ */
+async function authedFetch(path: string, options: RequestOptions = {}, isRetry = false): Promise<Response> {
   const { auth = true, body, headers, ...rest } = options;
 
   const finalHeaders = new Headers(headers);
@@ -127,7 +133,7 @@ async function request<T>(path: string, options: RequestOptions = {}, isRetry = 
     } catch (refreshFailure) {
       throw refreshFailure;
     }
-    return request<T>(path, options, true);
+    return authedFetch(path, options, true);
   }
 
   if (!response.ok) {
@@ -135,6 +141,11 @@ async function request<T>(path: string, options: RequestOptions = {}, isRetry = 
     throw new ApiError(response.status, envelope);
   }
 
+  return response;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await authedFetch(path, options);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -149,3 +160,40 @@ export const api = {
     request<T>(path, { ...options, method: "PATCH", body }),
   del: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "DELETE" }),
 };
+
+/**
+ * Triggers a real browser file save for a download endpoint -- not a JSON
+ * call. GET /tailored-documents/{id}/download is genuinely two different
+ * shapes depending on backend storage config (confirmed by reading
+ * app/cv_tailoring/router.py): local storage (this dev environment) proxies
+ * raw PDF bytes directly with Content-Type: application/pdf; S3 storage
+ * returns {url, expires_at} JSON pointing at a short-lived signed URL
+ * instead. Both are handled here so this works in either deployment, not
+ * just the one this was tested against.
+ *
+ * Either way this ends in the same place: a temporary, invisible <a
+ * download> click, which is what makes the browser actually save a file
+ * instead of navigating to it (a signed S3 URL opened as a plain link would
+ * just show the PDF in-tab; the download attribute is what forces a save).
+ */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const response = await authedFetch(path, { method: "GET" });
+  const contentType = response.headers.get("Content-Type") ?? "";
+
+  let blobUrl: string;
+  if (contentType.includes("application/json")) {
+    const { url } = (await response.json()) as { url: string };
+    blobUrl = url;
+  } else {
+    const blob = await response.blob();
+    blobUrl = URL.createObjectURL(blob);
+  }
+
+  const link = document.createElement("a");
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  if (!contentType.includes("application/json")) URL.revokeObjectURL(blobUrl);
+}

@@ -4,7 +4,7 @@ import { AppNav, BOTTOM_NAV_SPACER_CLASS } from "../components/AppNav";
 import { Button } from "../components/Button";
 import { ProgressState } from "../components/ProgressState";
 import { TrackIcon } from "../components/icons";
-import { api } from "../lib/api";
+import { api, downloadFile } from "../lib/api";
 import { ApiError } from "../lib/apiError";
 import { buildQueryString } from "../lib/queryString";
 import type { ApplicationOut, ApplicationStatus, Page } from "../types/api";
@@ -133,6 +133,19 @@ export function Track() {
                     ))}
                   </select>
                 </div>
+                {application.tailored_document_id && (
+                  <button
+                    onClick={() =>
+                      downloadFile(
+                        `/tailored-documents/${application.tailored_document_id}/download?kind=cv`,
+                        "Phanda_Tailored_CV.pdf",
+                      )
+                    }
+                    className="mt-2 font-body text-sm font-semibold text-phanda-green-dark hover:underline"
+                  >
+                    Download tailored CV
+                  </button>
+                )}
                 {rowErrors[application.id] && (
                   <p className="mt-2 font-body text-sm font-medium text-signal">{rowErrors[application.id]}</p>
                 )}

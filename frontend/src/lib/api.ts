@@ -1,0 +1,199 @@
+import type { AuthTokens, ErrorEnvelope } from "../types/api";
+import { ApiError } from "./apiError";
+import { clearTokens, getAccessToken, getRefreshToken, storeTokens } from "./tokenStorage";
+import { signalSessionExpired } from "./sessionEvents";
+
+const BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
+
+if (!BASE_URL) {
+  // Fails loudly at import time rather than as a confusing network error
+  // on the first click -- a missing .env is a setup mistake, not a runtime one.
+  throw new Error("VITE_API_BASE_URL is not set. Copy .env.example to .env and fill it in.");
+}
+
+/**
+ * Joins the base URL and a path with exactly one slash between them,
+ * regardless of whether BASE_URL ends in one (the documented .env.example
+ * value does: "http://localhost:8000/") and regardless of whether the
+ * caller's path starts with one (every call site's does: "/auth/register").
+ * Naively concatenating the two, as this used to do, produces
+ * "http://localhost:8000//auth/register" -- a double slash that some
+ * routers normalise away and others (this backend included, on at least
+ * one path) don't.
+ */
+function joinUrl(base: string, path: string): string {
+  return `${base.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+/**
+ * Single-flight refresh, the JS equivalent of the mutex-plus-comparison
+ * pattern: one shared module-level variable holds the in-flight refresh
+ * Promise. Every caller that hits a 401 checks this variable; the first one
+ * finds it empty and starts the refresh, every other one finds it already
+ * set and awaits the *same* Promise instead of starting its own.
+ *
+ * This works without an explicit lock because JavaScript has no preemptive
+ * concurrency: the "is refreshPromise set?" check and the "set it" write
+ * happen in the same synchronous tick, with no `await` between them where
+ * another caller could interleave. A Kotlin/JVM equivalent needs a real
+ * Mutex because multiple threads can genuinely race there; here, the event
+ * loop itself serialises that check-and-set.
+ */
+let refreshPromise: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) throw new ApiError(401, null);
+
+    let response: Response;
+    try {
+      response = await fetch(joinUrl(BASE_URL, "/auth/token/refresh"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+    } catch (cause) {
+      // A network failure during refresh says nothing about whether the
+      // refresh token itself is still valid -- don't sign the user out for
+      // being offline for a moment.
+      throw ApiError.network(cause);
+    }
+
+    if (!response.ok) {
+      const envelope = await readEnvelope(response);
+      if (response.status === 401) {
+        clearTokens();
+        signalSessionExpired();
+      }
+      throw new ApiError(response.status, envelope);
+    }
+
+    const tokens = (await response.json()) as AuthTokens;
+    storeTokens(tokens);
+    return tokens.access_token;
+  })();
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
+}
+
+async function readEnvelope(response: Response): Promise<ErrorEnvelope | null> {
+  try {
+    return (await response.json()) as ErrorEnvelope;
+  } catch {
+    return null;
+  }
+}
+
+interface RequestOptions extends Omit<RequestInit, "body"> {
+  body?: unknown;
+  /** false for register/login/refresh -- endpoints that must never carry
+   * (or trigger a refresh of) a bearer token. */
+  auth?: boolean;
+}
+
+/**
+ * The auth/retry/error-handling core shared by every request, JSON or not
+ * -- extracted so downloadFile() below doesn't have to reimplement the
+ * single-flight refresh dance just because its response body isn't JSON.
+ * Returns the raw, already-ok Response; callers decide how to read the body.
+ */
+async function authedFetch(path: string, options: RequestOptions = {}, isRetry = false): Promise<Response> {
+  const { auth = true, body, headers, ...rest } = options;
+
+  const finalHeaders = new Headers(headers);
+  const isFormData = body instanceof FormData;
+  if (body !== undefined && !isFormData) finalHeaders.set("Content-Type", "application/json");
+
+  if (auth) {
+    const token = getAccessToken();
+    if (token) finalHeaders.set("Authorization", `Bearer ${token}`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(joinUrl(BASE_URL, path), {
+      ...rest,
+      headers: finalHeaders,
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
+    });
+  } catch (cause) {
+    throw ApiError.network(cause);
+  }
+
+  if (response.status === 401 && auth && !isRetry) {
+    try {
+      await refreshAccessToken();
+    } catch (refreshFailure) {
+      throw refreshFailure;
+    }
+    return authedFetch(path, options, true);
+  }
+
+  if (!response.ok) {
+    const envelope = await readEnvelope(response);
+    throw new ApiError(response.status, envelope);
+  }
+
+  return response;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await authedFetch(path, options);
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+export const api = {
+  get: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "GET" }),
+  post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    request<T>(path, { ...options, method: "POST", body }),
+  put: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    request<T>(path, { ...options, method: "PUT", body }),
+  patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    request<T>(path, { ...options, method: "PATCH", body }),
+  del: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "DELETE" }),
+};
+
+/**
+ * Triggers a real browser file save for a download endpoint -- not a JSON
+ * call. GET /tailored-documents/{id}/download is genuinely two different
+ * shapes depending on backend storage config (confirmed by reading
+ * app/cv_tailoring/router.py): local storage (this dev environment) proxies
+ * raw PDF bytes directly with Content-Type: application/pdf; S3 storage
+ * returns {url, expires_at} JSON pointing at a short-lived signed URL
+ * instead. Both are handled here so this works in either deployment, not
+ * just the one this was tested against.
+ *
+ * Either way this ends in the same place: a temporary, invisible <a
+ * download> click, which is what makes the browser actually save a file
+ * instead of navigating to it (a signed S3 URL opened as a plain link would
+ * just show the PDF in-tab; the download attribute is what forces a save).
+ */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const response = await authedFetch(path, { method: "GET" });
+  const contentType = response.headers.get("Content-Type") ?? "";
+
+  let blobUrl: string;
+  if (contentType.includes("application/json")) {
+    const { url } = (await response.json()) as { url: string };
+    blobUrl = url;
+  } else {
+    const blob = await response.blob();
+    blobUrl = URL.createObjectURL(blob);
+  }
+
+  const link = document.createElement("a");
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  if (!contentType.includes("application/json")) URL.revokeObjectURL(blobUrl);
+}
